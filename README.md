@@ -1,16 +1,17 @@
 # Mustard_Microbiome
-scripts and (some) data for mustard rhizosphere project
+scripts for mustard rhizosphere project
 
 ## Project Description
-Experimental explanation
 
-### Goal / Question
+
+### Experimental Question
+Does the soil microbial community (bacteria and fungi) influence the flavor chemistry of mustard?
+
 ### Methods
 
-### Main files of interest
 
-## Overall file organization
-List of files, organization
+## List of files
+Main files of interest, organization
 
 >[!NOTE]
 >Large data files including sequence data will be deposited in (...link TBD)
