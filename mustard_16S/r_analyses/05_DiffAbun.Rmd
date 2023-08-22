@@ -1,0 +1,428 @@
+---
+title: "DiffAbun"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Differential Abundance Analysis
+
+example code 1: https://microbiome.github.io/OMA/differential-abundance.html
+example code 2: https://github.com/FrederickHuangLin/ANCOM
+example code 3: https://bioconductor.org/packages/release/bioc/vignettes/ALDEx2/inst/doc/ALDEx2_vignette.html
+
+## Set up
+### Install packages if needed
+```{r}
+#if (!require("BiocManager", quietly = TRUE))
+    #install.packages("BiocManager")
+
+#BiocManager::install("ALDEx2")
+```
+
+### Load libraries
+```{r}
+library(mctoolsr)
+library(plyr) # always load before tidyverse to avoid conflicts with dplyr
+library(tidyverse) # lazily load all of tidyverse, just in case I want to use it.
+library(vegan)
+library(plotly)
+library(readr)
+library(stringr)
+
+## for ANCOM
+library(nlme)
+#library(tidyverse)
+library(compositions)
+source("/Users/coin8046/Desktop/FiererLabNotebook/programs/ancom.R.1", local = TRUE)
+
+## for ALDEX
+library(ALDEx2)
+
+set.seed(10)
+```
+
+
+### Set up paths
+```{r}
+project.fp <- "/Users/coin8046/Desktop/FiererLabNotebook/mustard_microbiome/mustard_16S/r_analyses"
+
+data.fp <- file.path(project.fp, "02_exploration/outputs")
+
+  DiffAbun_05.fp <- file.path(project.fp, "05_DiffAbun")
+  outputs_05.fp <- file.path(DiffAbun_05.fp, "outputs")
+  figures_05.fp <- file.path(DiffAbun_05.fp, "figures")
+
+if (!dir.exists(DiffAbun_05.fp)) {dir.create(DiffAbun_05.fp, recursive = TRUE)}    
+if (!dir.exists(outputs_05.fp)) {dir.create(outputs_05.fp, recursive = TRUE)}
+if (!dir.exists(figures_05.fp)) {dir.create(figures_05.fp, recursive = TRUE)}
+```
+
+### Read in data
+NOTE CHECK INOCULUM!!!!!!
+```{r}
+#list.files(data.fp)
+input_rhizo.r  <- readRDS(paste0(data.fp, "/input_rhizo.chem.RDS"))
+input_root <- readRDS(paste0(data.fp, "/input_root.chem.RDS"))
+input_all <- readRDS(paste0(project.fp, "/01_clean_data/outputs/input_f2.RDS"))
+
+# read in chem data
+metadata.r <- readRDS("/Users/coin8046/Desktop/FiererLabNotebook/mustard_microbiome/mustard_chem/01_outputs/plant.chem_data.RDS")
+
+metadata <- metadata.r[-c(70), ]
+#sampleIDs <- metadata$Pot.ID
+
+
+input_rhizo <- input_rhizo.r 
+rhizo_asv <- input_rhizo$data_loaded[-c(1:10) ]
+rhizo_map <- input_rhizo$map_loaded %>% 
+  subset(sterility != "B") %>% 
+  # add chem data to maps
+  inner_join(metadata, by = c("SampleID_3" = "Pot.ID")) %>% 
+  mutate(X3mt_cat = ifelse(test = .$X3MT..µmol.g. > 0, yes = "pos", no = "neg")) %>% 
+  mutate(Allyl_cat = ifelse(test = .$Allyl..µmol.g. > 0.6, yes = "more", no = "less")) %>% 
+  mutate(soil_type = as.character(soil_type.x))
+
+input_slurry <- filter_data(input = input_all, filter_cat = "sample_type_2", keep_vals = "slurry")
+input_soil <- filter_data(input = input_all, filter_cat = "sample_type_2", keep_vals = "soil")
+input_slur.soil <- filter_data(input = input_all, filter_cat = "sample_type_2", keep_vals = c("soil", "slurry"))
+
+#root_asv <- input_root$data_loaded
+#root_map <- input_root$map_loaded
+```
+
+## break into each soil
+```{r}
+
+soil1.rz <- filter_data(input_rhizo.r, filter_cat = "soil_type", keep_vals = "1" )
+soil2.rz <- filter_data(input_rhizo.r, filter_cat = 'soil_type',keep_vals = "2" )
+soil3.rz <- filter_data(input_rhizo.r, filter_cat = 'soil_type',keep_vals = "3" )
+soil4.rz <- filter_data(input_rhizo.r, filter_cat = 'soil_type',keep_vals = "4" )
+soil5.rz <- filter_data(input_rhizo.r, filter_cat = 'soil_type',keep_vals = "5" )
+
+soil1.rz.M <- filter_data(soil1.rz, filter_cat = "sterility", keep_vals = "M" )
+soil2.rz.M  <- filter_data(soil2.rz, filter_cat = "sterility", keep_vals = "M" )
+soil3.rz.M  <- filter_data(soil3.rz, filter_cat = "sterility", keep_vals = "M" )
+soil4.rz.M  <- filter_data(soil4.rz, filter_cat = "sterility", keep_vals = "M" )
+soil5.rz.M  <- filter_data(soil5.rz, filter_cat = "sterility", keep_vals = "M" )
+
+soil1.rz.S <- filter_data(soil1.rz, filter_cat = "sterility", keep_vals = "S" )
+soil2.rz.S  <- filter_data(soil2.rz, filter_cat = "sterility", keep_vals = "S" )
+soil3.rz.S  <- filter_data(soil3.rz, filter_cat = "sterility", keep_vals = "S" )
+soil4.rz.S  <- filter_data(soil4.rz, filter_cat = "sterility", keep_vals = "S" )
+soil5.rz.S  <- filter_data(soil5.rz, filter_cat = "sterility", keep_vals = "S" )
+
+soil1.slr <- filter_data(input_slurry, filter_cat = "soil_type", keep_vals = "1" )
+soil2.slr <- filter_data(input_slurry, filter_cat = 'soil_type',keep_vals = "2" )
+soil3.slr <- filter_data(input_slurry, filter_cat = 'soil_type',keep_vals = "3" )
+soil4.slr <- filter_data(input_slurry, filter_cat = 'soil_type',keep_vals = "4" )
+soil5.slr <- filter_data(input_slurry, filter_cat = 'soil_type',keep_vals = "5" )
+```
+
+## ANCOM
+### Step 1: preprocessing
+```{r}
+feature_table = soil1.rz$data_loaded; sample_var = "sample_id"; group_var = "sterility"
+out_cut = 0.05; zero_cut = 0.90; lib_cut = 1000; neg_lb = FALSE
+meta_data = soil1.rz$map_loaded
+
+prepro = feature_table_pre_process(feature_table, meta_data, sample_var, group_var, 
+                                   out_cut, zero_cut, lib_cut, neg_lb)
+
+feature_table = prepro$feature_table # Preprocessed feature table
+meta_data = prepro$meta_data # Preprocessed metadata
+struc_zero = prepro$structure_zeros # Structural zero info
+```
+
+### Step 2: ANCOM
+```{r}
+## run ANCOM function
+main_var = "sterility"; p_adj_method = "BH"; alpha = 0.05
+adj_formula = NULL; rand_formula = NULL; lme_control = NULL
+
+
+
+res1 = ANCOM(feature_table, meta_data, struc_zero, main_var, p_adj_method, 
+            alpha, adj_formula, rand_formula, lme_control)
+
+saveRDS(object = res1, file = paste0(outputs_05.fp, "/ancom1.RDS"))
+#View(res5$out)
+
+#write_csv(res5$out, paste0(outputs_05.fp, "/ancom_soil5.csv"))
+```
+
+### Step 3: Volcano Plot
+```{r}
+## create plot
+
+# Number of taxa except structural zeros
+n_taxa = ifelse(is.null(struc_zero), nrow(feature_table), sum(apply(struc_zero, 1, sum) == 0))
+# Cutoff values for declaring differentially abundant taxa
+cut_off = c(0.9 * (n_taxa - 1), 0.8 * (n_taxa - 1), 0.7 * (n_taxa - 1), 0.6 * (n_taxa - 1))
+names(cut_off) = c("detected_0.9", "detected_0.8", "detected_0.7", "detected_0.6")
+
+# Annotation data
+dat_ann = data.frame(x = min(res1$fig$data$x), y = cut_off["detected_0.7"], label = "W[0.7]")
+
+fig = res1$fig +  
+  geom_hline(yintercept = cut_off["detected_0.7"], linetype = "dashed") + 
+  geom_text(data = dat_ann, aes(x = x, y = y, label = label), 
+            size = 4, vjust = -0.5, hjust = 0, color = "orange", parse = TRUE)
+fig 
+
+### look at data in plot
+#res1_sig <-res1$out %>% subset(detected_0.7 == "TRUE")
+res1_sig <-res1$out %>% subset(detected_0.7 == "TRUE")
+
+write_csv(res1_sig, paste0(outputs_05.fp, "/ancom_soil1_sig.csv"))
+
+
+```
+
+
+
+
+# ALDEx2
+```{r}
+
+conds <- soil5.rz$map_loaded$sterility
+
+x.s5 <- aldex(soil5.rz$data_loaded, conds, mc.samples=128, test="t", effect=TRUE,
+     include.sample.summary=FALSE, denom="all", verbose=FALSE)
+
+x.s5.p <- x.s5 %>% 
+  rownames_to_column(var = "ASV")
+
+write_csv(x.s5.p, paste0(outputs_05.fp, "/aldex_soil5.csv"))
+
+
+par(mfrow=c(1,2))
+
+aldex.plot(x.s4, type="MA", test="welch", xlab="Log-ratio abundance",
+    ylab="Difference")
+
+aldex.plot(x.s4, type="MW", test="welch", xlab="Dispersion",
+    ylab="Difference")
+
+
+
+# # identify which values are significant in both the t-test and glm tests
+found.by.all <- which(x.s1$we.eBH < 0.05 & x.s1$wi.eBH < 0.05)
+
+# identify which values are significant in fewer than all tests
+found.by.one <- which(x.s1$we.eBH < 0.05 | x.s1$wi.eBH < 0.05)
+
+# plot the within and between variation of the data
+plot(x.s1$diff.win, x.s1$diff.btw, pch=19, cex=0.3, col=rgb(0,0,0,0.3),
+ xlab="Dispersion", ylab="Difference")+
+points(x.s1$diff.win[found.by.one], x.s1$diff.btw[found.by.one], pch=19,
+ cex=0.7, col=rgb(0,0,1,0.5))+
+points(x.s1$diff.win[found.by.all], x.s1$diff.btw[found.by.all], pch=19,
+ cex=0.7, col=rgb(1,0,0,1))+
+abline(0,1,lty=2)+
+abline(0,-1,lty=2)
+
+#write_csv(x.all.X3mt, paste0(outputs_05.fp, "/ALDEx2_t.csv"))
+```
+
+
+## overlap between slurry and DA taxa
+### Soil 1
+```{r}
+ancom.s1 <- readRDS(paste0(outputs_05.fp, "/ancom1.RDS"))
+ancom.S1_sig <- ancom.s1$out %>% 
+  filter(detected_0.7 == "TRUE")
+anxom.soil1.sigtax <- ancom.S1_sig$taxa_id
+
+s1Ms <- soil1df %>% 
+  filter(dif>0) %>% 
+  rownames_to_column(var = "ASV")
+M1.tax <- s1Ms$ASV
+
+comM.soil1.tax <- intersect(M1.tax, anxom.soil1.sigtax)
+length(comM.soil1.tax)
+
+aldexx.s1 <- read_csv(paste0(outputs_05.fp, "/aldex_soil1.csv"))
+aldM.s1 <- aldex.s1 %>% 
+  filter(effect < -0.9)
+aldM.s1.tax <- aldM.s1$ASV
+
+slr1_ASVs <- soil1.slr$taxonomy_loaded$taxonomy7
+rzM1_ASVs <- soil1.rz.M$taxonomy_loaded$taxonomy7
+rzS1_ASVs <- soil1.rz.S$taxonomy_loaded$taxonomy7
+
+potsM1 <- intersect(slr1_ASVs, rzM1_ASVs)
+length(slr1_ASVs)
+length(rzM1_ASVs)
+length(potsM1)
+
+pots1 <- intersect(rzM1_ASVs, rzS1_ASVs)
+length(pots1)
+
+# comM.soil1.tax, aldM.s1.tax
+
+intersect(aldM.s1.tax, slr1_ASVs)
+intersect(comM.soil1.tax, slr1_ASVs)
+
+intersect(comM.soil1.tax, aldM.s1.tax)
+
+
+
+```
+
+### Soil 2
+```{r}
+ancom.s2 <- readRDS(paste0(outputs_05.fp, "/ancom2.RDS"))
+ancom.S2_sig <- ancom.s2$out %>% 
+  filter(detected_0.7 == "TRUE")
+ancom.soil2.sigtax <- ancom.S2_sig$taxa_id
+
+s2Ms <- soil2df %>% 
+  filter(dif>0) %>% 
+  rownames_to_column(var = "ASV")
+M2.tax <- s2Ms$ASV
+
+comM.soil2.tax <- intersect(M2.tax, ancom.soil2.sigtax)
+
+aldex.s2 <- read_csv(paste0(outputs_05.fp, "/aldex_soil2.csv"))
+aldM.s2 <- aldex.s2 %>% 
+  filter(effect < -0.9)
+aldM.s2.tax <- aldM.s2$ASV
+
+slr2_ASVs <- soil2.slr$taxonomy_loaded$taxonomy7
+rzM2_ASVs <- soil2.rz.M$taxonomy_loaded$taxonomy7
+rzS2_ASVs <- soil2.rz.S$taxonomy_loaded$taxonomy7
+
+potsM2 <- intersect(slr2_ASVs, rzM2_ASVs)
+length(slr2_ASVs)
+length(rzS2_ASVs)
+length(potsM2)
+
+potsS2 <- intersect(slr2_ASVs, rzS2_ASVs)
+pots2 <- intersect(rzM2_ASVs, rzS2_ASVs)
+length(pots2)
+# comM.soil1.tax, aldM.s1.tax
+
+intersect(aldM.s2.tax, slr2_ASVs)
+intersect(comM.soil2.tax, slr2_ASVs)
+
+intersect(comM.soil2.tax, aldM.s2.tax)
+```
+### Soil 3
+```{r}
+ancom.s3 <- readRDS(paste0(outputs_05.fp, "/ancom3.RDS"))
+ancom.S3_sig <- ancom.s3$out %>% 
+  filter(detected_0.7 == "TRUE")
+ancom.soil3.sigtax <- ancom.S3_sig$taxa_id
+
+s3Ms <- soil3df %>% 
+  filter(dif>0) %>% 
+  rownames_to_column(var = "ASV")
+M3.tax <- s3Ms$ASV
+
+comM.soil3.tax <- intersect(M3.tax, ancom.soil3.sigtax)
+
+aldex.s3 <- read_csv(paste0(outputs_05.fp, "/aldex_soil3.csv"))
+aldM.s3 <- aldex.s3 %>% 
+  filter(effect < -0.9)
+aldM.s3.tax <- aldM.s3$ASV
+
+slr3_ASVs <- soil3.slr$taxonomy_loaded$taxonomy7
+rzM3_ASVs <- soil3.rz.M$taxonomy_loaded$taxonomy7
+rzS3_ASVs <- soil3.rz.S$taxonomy_loaded$taxonomy7
+
+potsM3 <- intersect(slr3_ASVs, rzM3_ASVs)
+length(slr3_ASVs)
+length(rzS3_ASVs)
+length(potsM3)
+
+pots3 <- intersect(rzM3_ASVs, rzS3_ASVs)
+length(pots3)
+# comM.soil1.tax, aldM.s1.tax
+
+intersect(aldM.s3.tax, slr3_ASVs)
+intersect(comM.soil3.tax, slr3_ASVs)
+
+intersect(comM.soil3.tax, aldM.s3.tax)
+```
+### Soil 4
+```{r}
+ancom.s4 <- readRDS(paste0(outputs_05.fp, "/ancom4.RDS"))
+ancom.S4_sig <- ancom.s4$out %>% 
+  filter(detected_0.7 == "TRUE")
+ancom.soil4.sigtax <- ancom.S4_sig$taxa_id
+
+s4Ms <- soil4df %>% 
+  filter(dif>0) %>% 
+  rownames_to_column(var = "ASV")
+M4.tax <- s4Ms$ASV
+
+comM.soil4.tax <- intersect(M4.tax, ancom.soil4.sigtax)
+
+aldex.s4 <- read_csv(paste0(outputs_05.fp, "/aldex_soil4.csv"))
+aldM.s4 <- aldex.s4 %>% 
+  filter(effect < -0.9)
+aldM.s4.tax <- aldM.s4$ASV
+
+slr4_ASVs <- soil4.slr$taxonomy_loaded$taxonomy7
+rzM4_ASVs <- soil4.rz.M$taxonomy_loaded$taxonomy7
+rzS4_ASVs <- soil4.rz.S$taxonomy_loaded$taxonomy7
+
+potsM4 <- intersect(slr4_ASVs, rzM4_ASVs)
+length(slr4_ASVs)
+length(rzS4_ASVs)
+length(potsM4)
+
+pots4 <- intersect(rzM4_ASVs, rzS4_ASVs)
+length(pots4)
+# comM.soil1.tax, aldM.s1.tax
+
+intersect(aldM.s4.tax, slr4_ASVs)
+intersect(comM.soil4.tax, slr4_ASVs)
+
+intersect(comM.soil4.tax, aldM.s4.tax)
+```
+### Soil 5
+```{r}
+ancom.s5 <- readRDS(paste0(outputs_05.fp, "/ancom5.RDS"))
+ancom.S5_sig <- ancom.s5$out %>% 
+  filter(detected_0.7 == "TRUE")
+ancom.soil5.sigtax <- ancom.S5_sig$taxa_id
+
+s5Ms <- soil5df %>% 
+  filter(dif>0) %>% 
+  rownames_to_column(var = "ASV")
+M5.tax <- s5Ms$ASV
+
+comM.soil5.tax <- intersect(M5.tax, ancom.soil5.sigtax)
+
+aldex.s5 <- read_csv(paste0(outputs_05.fp, "/aldex_soil5.csv"))
+aldM.s5 <- aldex.s5 %>% 
+  filter(effect < -0.9)
+aldM.s5.tax <- aldM.s5$ASV
+
+slr5_ASVs <- soil5.slr$taxonomy_loaded$taxonomy7
+rzM5_ASVs <- soil5.rz.M$taxonomy_loaded$taxonomy7
+rzS5_ASVs <- soil5.rz.S$taxonomy_loaded$taxonomy7
+
+potsM5 <- intersect(slr5_ASVs, rzM5_ASVs)
+length(slr5_ASVs)
+length(rzS5_ASVs)
+length(potsM5)
+
+pots5 <- intersect(rzM5_ASVs, rzS5_ASVs)
+length(pots5)
+# comM.soil1.tax, aldM.s1.tax
+
+intersect(aldM.s5.tax, slr5_ASVs)
+intersect(comM.soil5.tax, slr5_ASVs)
+
+intersect(comM.soil5.tax, aldM.s5.tax)
+```
+
+```{r}
+## indicator analyses?
+```
+

@@ -1,0 +1,290 @@
+---
+title: "SoilSlurryChecks"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+## Set up
+
+### Load libraries
+```{r}
+library(mctoolsr)
+library(plyr) # always load before tidyverse to avoid conflicts with dplyr
+library(tidyverse) # lazily load all of tidyverse, just in case I want to use it.
+library(vegan)
+library(plotly)
+library(readr)
+library(raster)
+
+set.seed(10)
+```
+
+## Set up input and output directories
+```{r Set up input and output directories, include = FALSE}
+project.fp <- "/Users/coin8046/Desktop/FiererLabNotebook/mustard_microbiome/mustard_16S/r_analyses"
+clean_data.fp <- file.path(project.fp, "01_clean_data")
+    figures_01_clean.fp <- file.path(clean_data.fp, "figures")
+    outputs_01_clean.fp <- file.path(clean_data.fp, "outputs")
+
+slrsl_06.fp <- file.path(project.fp, "06_SoilSlurry")
+    figs_06.fp <- file.path(slrsl_06.fp, "figures")
+    outputs_06.fp <- file.path(slrsl_06.fp, "outputs")
+
+if (!dir.exists(slrsl_06.fp)) {dir.create(slrsl_06.fp, recursive = TRUE)}    
+if (!dir.exists(figs_06.fp)) {dir.create(figs_06.fp, recursive = TRUE)}
+if (!dir.exists(outputs_06.fp)) {dir.create(outputs_06.fp, recursive = TRUE)}
+```
+
+## Data set up 
+
+### Read in 16S data
+```{r}
+## clean raw data
+input_filt <- readRDS(paste0(outputs_01_clean.fp, "/input_filt.RDS"))
+
+## rarefied raw data (4000 reads)
+input_rar <- readRDS(paste0(outputs_01_clean.fp, "/input_filt_rar4k.RDS"))
+
+## relative abundance raw data
+input_relab <- readRDS(paste0(outputs_01_clean.fp, "/input_filt_relab.RDS"))
+
+## clean filt2 data
+input_f2 <- readRDS(paste0(outputs_01_clean.fp, "/input_f2.RDS"))
+
+## clean filt2 data relative abundance
+input_f2_relab <- readRDS(paste0(outputs_01_clean.fp, "/input_f2_relab.RDS"))
+
+## clean filt2 data rarefied (2000,4000 reads)
+input_f2_rar2 <- readRDS(paste0(outputs_01_clean.fp, "/input_f2_rar4k.RDS"))
+input_f2_rar1 <- readRDS(paste0(outputs_01_clean.fp, "/input_f2_rar2k.RDS"))
+
+```
+
+
+### Read in sample metadata
+```{r}
+metadata.r <- readRDS("/Users/coin8046/Desktop/FiererLabNotebook/mustard_microbiome/mustard_chem/01_outputs/plant.chem_data_11.10.RDS") #plant.chem_data.RDS
+
+## remove duplicate row
+metadata <- metadata.r[-c(70), ]
+
+## get sample IDs for later merging
+sampleIDs <- metadata$Pot.ID
+
+```
+
+### adjust mapping file
+```{r}
+
+map.rr <- input_f2_rar2$map_loaded
+## NOTE, don't do this below! typos fixed in sample ID 2, just keeping this here as a visual note on typos in sample ids
+# map.rr[12, 1] <- "B4_rhizo"
+# map.rr[40, 1] <- "M1-9_rhizo"
+# map.rr[66, 1] <- "M2-9_rhizo"
+# map.rr[159, 1] <- "S1-4_rhizo"
+# map.rr[213, 1] <- "S4-6_rhizo"
+
+map.r <- map.rr %>% 
+  mutate(SampleID_3 = gsub('(.*)_\\w+', '\\1', SampleID_2)) %>% 
+  mutate(soil_type = as.factor(soil_type))
+
+input_f2_rar2$map_loaded <- map.r
+input_f2_rar1$map_loaded <- map.r
+
+
+```
+
+### Make sample specific dataframes
+```{r}
+### f2 data rar2 data (could also use input_f2_relab)
+input_soilslr = filter_data(input_f2_rar2, 'sample_type_2', keep_vals = c("slurry","soil"))
+input_soilslr.nb = filter_data(input_soilslr, 'sterility', keep_vals = c("M","S"))
+
+input_rhizo = filter_data(input_f2_rar2, 'sample_type_2', keep_vals = c("rhizo"))
+
+input_f2_rhizo.M = filter_data(input_rhizo, 'sterility', keep_vals = c("M"))
+input_f2_rhizo.S = filter_data(input_rhizo, 'sterility', keep_vals = c("S"))
+
+```
+
+## M v S taxa subtraction / comparisons 
+Note: could also do this with root samples...
+```{r}
+rzS.df <- input_f2_rhizo.S$data_loaded %>% 
+  mutate(readSums = rowSums(.))
+
+rzM.df <- input_f2_rhizo.M$data_loaded %>% 
+  mutate(readSums = rowSums(.))
+
+
+```
+
+
+```{r}
+input_slurry <- filter_data(input_soilslr, filter_cat = "sample_type_2", keep_vals = c("slurry"))
+# 7302
+input_soil <- filter_data(input_soilslr, filter_cat = "sample_type_2", filter_vals = c("slurry"))
+# 2884
+
+slurry1 <- filter_data(input_slurry, filter_cat = "soil_type", keep_vals = "1")
+slr1.tax <- slurry1$taxonomy_loaded$taxonomy7 %>% unlist()
+# 2627
+
+slurry2 <- filter_data(input_slurry, filter_cat = "soil_type", keep_vals = "2")
+slr2.tax <- slurry2$taxonomy_loaded$taxonomy7 %>% unlist()
+# 2091
+
+slurry3 <- filter_data(input_slurry, filter_cat = "soil_type", keep_vals = "3")
+slr3.tax <- slurry3$taxonomy_loaded$taxonomy7 %>% unlist()
+# 1795
+
+slurry4 <- filter_data(input_slurry, filter_cat = "soil_type", keep_vals = "4")
+slr4.tax <- slurry4$taxonomy_loaded$taxonomy7 %>% unlist()
+# 2127
+
+slurry5 <- filter_data(input_slurry, filter_cat = "soil_type", keep_vals = "5")
+slr5.tax <- slurry5$taxonomy_loaded$taxonomy7 %>% unlist()
+# 2200
+```
+
+### MS soil specific data tables
+```{r}
+## all slurry
+slr.all.tax <- input_slurry$taxonomy_loaded$taxonomy7 %>% unlist()
+# 7302
+
+
+## all S
+S.all.tax <- input_f2_rhizo.S$taxonomy_loaded$taxonomy7 %>% unlist()
+S.allF.tax <- input_f2_rhizo.S$data_loaded %>% 
+  filter(rowSums(.)>10) %>% 
+  rownames_to_column(var = "ASV") %>% 
+  dplyr::select("ASV") %>% unlist()
+
+## all S
+M.all.tax <- input_f2_rhizo.M$taxonomy_loaded$taxonomy7 %>% unlist()
+M.allF.tax <- input_f2_rhizo.M$data_loaded %>% 
+  filter(rowSums(.)>10) %>% 
+  rownames_to_column(var = "ASV") %>% 
+  dplyr::select("ASV") %>% unlist()
+
+# M.all.tax 5728
+# M.allF.tax 1923
+# S.all.tax 3935
+# S.allF.tax 1536
+
+SnotM <- setdiff(S.all.tax, M.all.tax)
+#1009
+MnotS <- setdiff(M.all.tax, S.all.tax)
+#2802
+SandM <- intersect(M.all.tax, S.all.tax)
+#2926
+
+MandSlr <- intersect(M.all.tax, slr.all.tax)
+#1337
+MfandSlr <- intersect(MnotS, slr.all.tax)
+#911
+
+```
+
+### slurries only
+```{r}
+
+```
+
+### m v s soils
+```{r}
+## soil 1
+S1.input <- filter_data(input = input_f2_rhizo.S, filter_cat = "soil_type", keep_vals = "1")
+M1.input <- filter_data(input = input_f2_rhizo.M, filter_cat = "soil_type", keep_vals = "1")
+
+S1.tax <- S1.input$taxonomy_loaded$taxonomy7 %>% unlist()
+M1.tax <- M1.input$taxonomy_loaded$taxonomy7 %>% unlist()
+
+M1.f <- filter_taxa_from_input(input = M1.input, taxa_IDs_to_remove = S.allF.tax) 
+M1.df <- M1.f$data_loaded%>% 
+  mutate(readSums = rowSums(.))
+
+M1.f.tax <- M1.f$taxonomy_loaded$taxonomy7 %>% unlist()
+
+m1.1int <- intersect(slr1.tax, M1.tax)
+#392
+m1.2int <- intersect(slr1.tax, M1.f.tax)
+#320
+
+## soil 2
+S2.input <- filter_data(input = input_f2_rhizo.S, filter_cat = "soil_type", keep_vals = "2")
+M2.input <- filter_data(input = input_f2_rhizo.M, filter_cat = "soil_type", keep_vals = "2")
+
+S2.tax <- S2.input$taxonomy_loaded$taxonomy7 %>% unlist()
+M2.tax <- M2.input$taxonomy_loaded$taxonomy7 %>% unlist()
+
+M2.f <- filter_taxa_from_input(input = M2.input, taxa_IDs_to_remove = S.allF.tax) 
+M2.df <- M2.f$data_loaded%>% 
+  mutate(readSums = rowSums(.))
+
+M2.f.tax <- M2.f$taxonomy_loaded$taxonomy7 %>% unlist()
+
+m2.1int <- intersect(slr2.tax, M2.tax)
+#179
+m2.2int <- intersect(slr2.tax, M2.f.tax)
+#108
+
+
+## soil 3
+S3.input <- filter_data(input = input_f2_rhizo.S, filter_cat = "soil_type", keep_vals = "3")
+M3.input <- filter_data(input = input_f2_rhizo.M, filter_cat = "soil_type", keep_vals = "3")
+
+S3.tax <- S3.input$taxonomy_loaded$taxonomy7 %>% unlist()
+M3.tax <- M3.input$taxonomy_loaded$taxonomy7 %>% unlist()
+
+M3.f <- filter_taxa_from_input(input = M3.input, taxa_IDs_to_remove = S.allF.tax) 
+M3.df <- M3.f$data_loaded%>% 
+  mutate(readSums = rowSums(.))
+M3.f.tax <- M3.f$taxonomy_loaded$taxonomy7 %>% unlist()
+
+m3.1int <- intersect(slr3.tax, M3.tax)
+#287
+m3.2int <- intersect(slr3.tax, M3.f.tax)
+#212
+
+## soil 4
+S4.input <- filter_data(input = input_f2_rhizo.S, filter_cat = "soil_type", keep_vals = "4")
+M4.input <- filter_data(input = input_f2_rhizo.M, filter_cat = "soil_type", keep_vals = "4")
+
+S4.tax <- S4.input$taxonomy_loaded$taxonomy7 %>% unlist()
+M4.tax <- M4.input$taxonomy_loaded$taxonomy7 %>% unlist()
+
+M4.f <- filter_taxa_from_input(input = M4.input, taxa_IDs_to_remove = S.allF.tax) 
+M4.df <- M4.f$data_loaded%>% 
+  mutate(readSums = rowSums(.))
+M4.f.tax <- M4.f$taxonomy_loaded$taxonomy7 %>% unlist()
+
+m4.1int <- intersect(slr4.tax, M4.tax)
+#440
+m4.2int <- intersect(slr4.tax, M4.f.tax)
+#343
+
+
+## soil 5
+S5.input <- filter_data(input = input_f2_rhizo.S, filter_cat = "soil_type", keep_vals = "5")
+M5.input <- filter_data(input = input_f2_rhizo.M, filter_cat = "soil_type", keep_vals = "5")
+
+S5.tax <- S5.input$taxonomy_loaded$taxonomy7 %>% unlist()
+M5.tax <- M5.input$taxonomy_loaded$taxonomy7 %>% unlist()
+
+M5.f <- filter_taxa_from_input(input = M5.input, taxa_IDs_to_remove = S.allF.tax) 
+M5.df <- M5.f$data_loaded%>% 
+  mutate(readSums = rowSums(.))
+M5.f.tax <- M5.f$taxonomy_loaded$taxonomy7 %>% unlist()
+
+m5.1int <- intersect(slr5.tax, M5.tax)
+#204
+m5.2int <- intersect(slr5.tax, M5.f.tax)
+#139
+```
+
