@@ -11,7 +11,8 @@ scripts for mustard rhizosphere project
 ### Methods
 - Greenhouse experiment with mustard plants (_Brassica juncea_ var Kodiak)  
 - Manipulated soil microbes: used five distinct soils collected from different ecosystems to generate distinct microbial community inoculants. Inoculated autoclaved potting soil with live or sterilized soil slurries, or a buffer only control, for a total of 11 different treatment conditions. Each condition had 10 replicate pots, with one mustard plant per pot, for a total of 110 potted mustard plants.   
-- Characterized the bacterial (16S rRNA) and fungal (ITS) communities of the roots and rhizospheres of the mustard plants grown in this study via marker gene sequencing, and total community functional potential using shotgun metagenomics.   
+- Characterized the bacterial (16S rRNA) and fungal (ITS) communities of the roots and rhizospheres of the mustard plants grown in this study via marker gene sequencing, and total community functional potential using shotgun metagenomics.  
+- Characterized the chemical profile of mustard seeds produced, focusing on the major flavor chemical of brassica - glucosinolates. Glucosinolate testing performed at UC Davis in the lab of Dan Kliebenstein. 
 
 ## List of files
 file explanation, organization
