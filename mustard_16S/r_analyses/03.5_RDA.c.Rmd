@@ -1,0 +1,192 @@
+---
+title: "RDA etc"
+output: html_document
+---
+## Set up
+
+### Load libraries
+```{r}
+library(mctoolsr)
+library(plyr) 
+library(tidyverse) 
+library(vegan)
+library(plotly)
+library(viridis)
+library(devtools)
+library(ggbiplot)
+
+set.seed(10)
+```
+
+### Set up input and output directories
+```{r Set up input and output directories, include = FALSE}
+project.fp <- "/Users/coin8046/Desktop/FiererLabNotebook_copy/mustard_microbiome/mustard_16S/r_analyses"
+clean_data.fp <- file.path(project.fp, "01_clean_data")
+    figures_01_clean.fp <- file.path(clean_data.fp, "figures")
+    outputs_01_clean.fp <- file.path(clean_data.fp, "outputs")
+
+explr_02.fp <- file.path(project.fp, "02_exploration")
+    figures_02.fp <- file.path(explr_02.fp, "figures")
+    outputs_02.fp <- file.path(explr_02.fp, "outputs")
+    
+RDA_03.5.fp <- file.path(project.fp, "03.5_RDA")
+    figures_03.5.fp <- file.path(RDA_03.5.fp, "figures")
+    outputs_03.5.fp <- file.path(RDA_03.5.fp, "outputs")
+
+# if (!dir.exists(mantel_03.fp)) {dir.create(mantel_03.fp, recursive = TRUE)}    
+# if (!dir.exists(figures_03.fp)) {dir.create(figures_03.fp, recursive = TRUE)}
+# if (!dir.exists(figures_03.fp)) {dir.create(figures_03.fp, recursive = TRUE)}
+```
+
+## Data set up 
+
+### Read in data
+```{r}
+## data frames needed (generated in 02_exploration.c.Rmd)
+
+## input_f2_rhizo.M
+## input_f2_samps5
+```
+
+
+## RDA analysis
+```{r}
+# https://fukamilab.github.io/BIO202/06-B-constrained-ordination.html#:~:text=Constrained%20ordinations%20use%20an%20a,the%20variation%20in%20the%20data).
+# https://sites.google.com/site/mb3gustame/constrained-analyses/rda/dbrda
+# https://archetypalecology.wordpress.com/2018/02/21/distance-based-redundancy-analysis-db-rda-in-r/
+
+# NOTE: Some of this code adapted from Josep Ramoneda
+
+##0 GENERATE WORKING DATA FRAME OF RHIZOSPHERE ASVS ("live" microbial treatment only)
+rhizoM_tab.r <- input_f2_rhizo.M$data_loaded
+
+##1 GET DISTANCE MATRIX OF YOUR ASV TABLE AND THE METADATA
+rhizoM_tab.r1 <- rhizoM_tab.r
+
+otus = vegdist(t(rhizoM_tab.r1), "bray", na.rm = T)
+
+##2 MAKE DATAFRAME WITH THE ENVIRONMENTAL PREDICTORS OF INTEREST (glucosinolate content in seeds)
+
+rda.dbb =  input_f2_rhizo.M$map_loaded %>%
+  dplyr::select(c("Allyl..µmol.g.", "X3MT..µmol.g.", "X3.Butenyl..µmol.g.","Indoles..µmol.g.")) 
+  #   potential plant factors to include: "total_seed_mass","height_9", "total_seed_mass",
+
+
+
+##3 BUILD AND TEST STATISTICAL MODEL: YOUR DISSIMILARITY MATRIX IS Y, YOUR PREDICTORS ARE X
+
+rda.chem = dbrda(formula = otus ~ .,
+                 data = rda.dbb, na.action = "na.omit") 
+
+
+plot(rda.chem)
+summary(rda.chem)
+anova(rda.chem) 
+anova(rda.chem, by = "margin") 
+anova(rda.chem, by = "axis") 
+
+
+
+##4 PLOT ORDINATION WITH EXPLANATORY VARIABLES AS ARROWS
+
+smry = summary(rda.chem)
+df1  <- data.frame(smry$sites[,1:2])       
+df1 = as.data.frame(cbind(df1, "Allyl" = rda.dbb$Allyl..µmol.g.,
+                          # "X3.Butenyl" = rda.dbb$X3.Butenyl..µmol.g., 
+                          # "X3MT" = rda.dbb$X3MT..µmol.g.,
+                          # "Indoles" = rda.dbb$Indoles..µmol.g.)) #), 
+                          "soil" = input_f2_rhizo.M$map_loaded$soil_type.x)) 
+
+df2  <- data.frame(smry$biplot[,1:2]) %>% rownames_to_column(var = "gsl")
+col = c("dark golden rod","maroon","olive drab")
+
+p <- ggplot(df1, aes(x = dbRDA1, y = dbRDA2, col = Allyl, shape = soil)) + 
+  geom_point(size = 6, fill = "white") +
+  coord_fixed(0.7) + 
+  geom_segment(inherit.aes = F, data = df2, mapping = aes(x = 0, xend = 1.8*dbRDA1, y = 0, yend = 1.8*dbRDA2),
+               colour = "black", size = 1, arrow = arrow(length = unit(0.25, "cm"))) +
+  geom_hline(yintercept=0, linetype="dotted") +
+  geom_vline(xintercept=0, linetype="dotted") + theme_classic() +
+  #scale_fill_manual(values= "white") +
+  #scale_color_gradient(high = "yellow", low = "blue")+
+  scale_color_viridis(option = "plasma", begin = 0, end = 0.85)+
+  theme_bw(base_size = 18)
+  
+
+p
+
+###### SAVE
+ggsave(p, filename = paste0(figures_03.5.fp, "/RDA_rhizoM_allyl.png"), height = 8, width = 10)
+
+```
+
+
+###soil dbRDA
+```{r}
+
+rhizoALL_tab.r <- input_f2_samps5$data_loaded
+
+
+##1 GET DISTANCE MATRIX OF YOUR ASV TABLE AND THE METADATA
+rhizoALL_tab.r1 <- rhizoALL_tab.r 
+
+otus.soil = vegdist(t(rhizoALL_tab.r), "bray", na.rm = T)
+
+##2 MAKE DATAFRAME WITH THE ENVIRONMENTAL PREDICTORS OF INTEREST (soil inoculation condition)
+rda.soil.df =  input_f2_samps5$map_loaded %>%
+  dplyr::select("condition") 
+
+##3 BUILD AND TEST STATISTICAL MODEL: YOUR DISSIMILARITY MATRIX IS Y, YOUR PREDICTORS ARE X
+rda.soil = dbrda(formula = otus.soil ~ .,
+                 data = rda.soil.df, na.action = "na.omit") 
+
+
+p_labs.soil <- plot(rda.soil)
+
+anova(rda.soil) 
+anova(rda.soil, by = "margin") 
+summary(rda.soil)
+plot(rda.soil)
+
+### pretty plot
+smry.s = summary(rda.soil)
+df1.s  <- data.frame(smry.s$sites[,1:2])       
+df1.s = as.data.frame(cbind(df1.s, 
+                          "treatment" = rda.soil.df$condition)) 
+
+df2.s  <- data.frame(smry.s$biplot[,1:2]) %>% rownames_to_column(var = "treatment")
+
+p.soil <- ggplot(df1.s, aes(x = dbRDA1, y = dbRDA2, col = treatment)) + 
+  geom_point(size = 6, fill = "white") +
+  coord_fixed(0.7) + 
+  # geom_segment(inherit.aes = F, data = df2.s, mapping = aes(x = 0, xend = 1.8*dbRDA1, y = 0, yend = 1.8*dbRDA2),
+  #              colour = "black", size = 1, arrow = arrow(length = unit(0.25, "cm"))) +
+  geom_hline(yintercept=0, linetype="dotted") +
+  geom_vline(xintercept=0, linetype="dotted") + theme_classic() +
+  #scale_fill_manual(values= "white") +
+  #scale_color_gradient(high = "yellow", low = "blue")+
+  scale_color_manual(values = palmuteG)+
+  theme_bw(base_size = 18)
+  
+
+p.soil
+
+ggsave(p.soil, filename = paste0(figures_03.5.fp, "/RDA_rhizoALL_treat.png"), height = 8, width = 10)
+```
+
+### soil CCA
+```{r}
+## CCA PLOT
+cca.soil = capscale(formula = otus.soil ~ .,
+                 data = rda.soil.df, na.action = "na.omit") 
+
+soil.ord <- calc_ordination(dm = otus.soil, ord_type = 'constrained', metadata_map = input_f2_samps5$map_loaded, constrain_factor = 'condition')
+
+soil.ord.p <- plot_ordination(input = input_f2_samps5, ordination_axes = soil.ord, color_cat = 'condition', hulls = TRUE)+
+  scale_color_manual(values = palmuteG)+
+  scale_fill_manual(values = palmuteG)+
+  theme_bw(base_size = 18)
+soil.ord.p
+
+ggsave(soil.ord.p, filename = paste0(figures_03.5.fp, "/CCA_rhizoALL_treat.png"), height = 8, width = 10)
+```

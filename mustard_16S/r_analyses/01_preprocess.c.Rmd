@@ -1,0 +1,568 @@
+---
+title: "01_preprocess"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load libraries
+```{r}
+#install.packages("devtools")
+#devtools::install_github("leffj/mctoolsr")
+
+library(mctoolsr)
+library(plyr) # always load before tidyverse to avoid conflicts with dplyr
+library(tidyverse) 
+library(vegan)
+library(plotly)
+library(readr)
+library(RColorBrewer)
+#library(forcats) # for neat ordering of factors when graphing
+#library(ggrepel) # for making nice repelling labels
+
+set.seed(10)
+```
+
+## Set up input and output directories
+```{r Set up input and output directories, include = FALSE}
+project.fp <- "/Users/coin8046/Desktop/FiererLabNotebook_copy/mustard_microbiome/mustard_16S/r_analyses"
+raw_data.fp <- file.path(project.fp, "00_rawdata")
+clean_data.fp <- file.path(project.fp, "01_clean_data")
+    figures_01_clean.fp <- file.path(clean_data.fp, "figures")
+    outputs_01_clean.fp <- file.path(clean_data.fp, "outputs")
+
+if (!dir.exists(clean_data.fp)) {dir.create(clean_data.fp, recursive = TRUE)}    
+if (!dir.exists(figures_01_clean.fp)) {dir.create(figures_01_clean.fp, recursive = TRUE)}
+if (!dir.exists(outputs_01_clean.fp)) {dir.create(outputs_01_clean.fp, recursive = TRUE)}
+```
+
+## Read in data
+```{r Read in data, include = FALSE}
+# bacterial ASV table generated from DADA2, with sequence inference on pooled samples
+tax_table_fp <- paste0(raw_data.fp, '/seqtab_wTax_mctoolsr_pooled.txt')
+#tmp_tab <- read.delim(tax_table_fp, header = FALSE)
+
+# mapping file with (minimal) sample info
+map_fp <- paste0(raw_data.fp, '/MappingFile_Mustard2021_16S_CW.txt')
+#tmp_map <- read.delim(map_fp, header = TRUE) 
+
+# load data via mctoolsr
+## creates object with taxa details, metadata, and ASV table
+input <- load_taxa_table(tax_table_fp, map_fp)
+
+# extract just map file for later plotting
+map.r <- input$map_loaded %>% rownames_to_column(var = 'sample_id')
+```
+
+
+## Initial summary of sequencing results
+#### Filtering to remove chloroplast, mitochondria
+#### Filtering to remove non-bacterial reads
+```{r}
+cat('host asvs removed')
+input_filt <- filter_taxa_from_input(input, taxa_to_remove = c("Chloroplast","Mitochondria", "Eukaryota"))
+(input_filt$data_loaded %>% colSums() %>% sum()) / (input$data_loaded %>% colSums() %>% sum())
+cat('nonbacterial asvs removed')
+input_filt.f1 <- filter_taxa_from_input(input_filt, at_spec_level = 2, taxa_to_remove = "NA")
+(input_filt.f1$data_loaded %>% colSums() %>% sum()) / (input$data_loaded %>% colSums() %>% sum())
+
+```
+
+### Adjust mapping file
+```{r}
+map <- map.r %>% 
+  left_join(data.frame(ReadCount.raw = colSums(input$data_loaded)) %>%
+               rownames_to_column(), by = c("sample_id" = "rowname")) %>% 
+  left_join(data.frame(ReadCount.filt = colSums(input_filt.f1$data_loaded)) %>%
+               rownames_to_column(), by = c("sample_id" = "rowname")) %>% 
+  mutate(Rownames = sample_id) %>% 
+  column_to_rownames(var = "Rownames") %>% 
+  mutate(condition = gsub("\\-.*", "", SampleID_2)) %>% 
+  mutate(soil_type = parse_number(condition)) %>% 
+  mutate(sterility = gsub("[^a-zA-Z]", "", condition))
+map[is.na(map)] <- 0  
+
+input_filt.f1$map_loaded <- map
+```
+
+
+### What are the read depth statistics?
+```{r}
+cat('Summary read depth statistics: raw reads, pooled')
+raw_reads_per_sample.p <- sort(colSums(input$data_loaded))
+summary(raw_reads_per_sample.p)
+
+cat('Summary read depth statistics: plant host, non-bact reads removed, pooled')
+ncnm_reads_per_sample.p <- sort(colSums(input_filt.f1$data_loaded))
+summary(ncnm_reads_per_sample.p)
+```
+
+### What is the percent mitochondria/chloroplast? (in pooled data)?
+```{r}
+# Calculate Total ASVs (pooled)
+tot_reads.p <- input$data_loaded %>% colSums()
+tot_reads_sum.p <- tot_reads.p %>% sum()
+
+# Reads without chloroplast and mitochondria (pooled)
+reads_nc_nm.p <- input_filt$data_loaded %>% colSums()
+reads_nc_nm_sum.p <- reads_nc_nm.p %>% sum()
+
+# Chloroplast sum
+chloroplast_reads.p <- input$data_loaded %>%
+  rownames_to_column(var = "ESV_ID") %>%
+  full_join(input$taxonomy_loaded %>%
+              rownames_to_column(var = "ESV_ID"),
+            by = "ESV_ID") %>% 
+  filter(taxonomy4 == "Chloroplast") %>%
+  select(-c(1)) %>%
+  select(!starts_with("t")) %>%
+  colSums() %>% sort(decreasing = TRUE)
+
+chloroplast_prop.p <- sum(chloroplast_reads.p)/tot_reads_sum.p
+
+# Mitochondria sum
+mito_reads.p <- input$data_loaded %>%
+  rownames_to_column(var = "ESV_ID") %>%
+  full_join(input$taxonomy_loaded %>%
+              rownames_to_column(var = "ESV_ID"),
+            by = "ESV_ID") %>% 
+  filter(taxonomy5 == "Mitochondria") %>%
+  select(-1) %>%
+  select(!starts_with("t")) %>%
+  colSums() %>% sort(decreasing = TRUE)
+
+mito_prop.p <- sum(mito_reads.p)/tot_reads_sum.p
+
+
+# Total reads
+# tot_reads
+cat('Total reads:',tot_reads_sum.p)
+
+# Percent chloroplast
+cat('Percent chloroplast:', chloroplast_prop.p * 100)
+
+# Percent mitochondria
+cat('Percent mitochondria:', mito_prop.p * 100)
+```
+
+
+## Investigating Blanks
+### Create blank data frame
+```{r}
+## make blank specific dataframe
+input_blanks = filter_data(input_filt.f1, 'sample_type_1', keep_vals = c("blank"))
+
+blank_df <- input_blanks$data_loaded %>% 
+  mutate(asv_reads = rowSums(.[1:ncol(input_blanks$data_loaded)])) %>% 
+  mutate(asv_ubiq = rowSums(.[1:ncol(input_blanks$data_loaded-1)] !=0)) 
+
+summary(blank_df$asv_reads)
+summary(blank_df$asv_ubiq)
+
+## contaminant dataframe of main ASVS commonly identified in blanks
+contam_df <- blank_df %>% 
+  filter(asv_ubiq > 25)
+
+contam_asvs <- rownames(contam_df)
+
+input_contam = filter_taxa_from_input(input_filt.f1, taxa_IDs_to_keep = contam_asvs)
+
+```
+
+### Clean / Filter blank contamination
+```{r}
+
+## remove contaminating ASVs identified in blanks
+input_filt.f = filter_taxa_from_input(input_filt.f1, taxa_IDs_to_remove = contam_asvs)
+
+# Calculate Total ASVs of contams
+contam_reads_sum.p <- input_contam$data_loaded %>% colSums() %>% sum()
+
+# Calculate percent ASVs of contams
+contam_perc.p <- (contam_reads_sum.p/tot_reads_sum.p) * 100
+contam_perc.p
+
+# Calculate percent ASVs remaining after removing host, non-bacterial, and contams
+totreads_inputf <- input_filt.f$data_loaded %>% colSums() %>% sum()
+(totreads_inputf / tot_reads_sum.p)*100
+
+cat('Summary read depth statistics: host, nonbacterial, contaminants removed')
+clean_reads_per_sample.p <- sort(colSums(input_filt.f$data_loaded))
+summary(clean_reads_per_sample.p)
+```
+
+### Clean / Filter spurious reads
+```{r}
+### make inputs to manipulate
+input_f2 <- input_filt.f
+input_f5 <- input_filt.f
+#input_f10 <- input_filt.f
+
+### threshold data at 5 and 10 reads / asv / sample
+f2_df <- input_f2$data_loaded
+f2_df[f2_df < 2] = 0
+input_f2$data_loaded <- f2_df
+
+f5_df <- input_f5$data_loaded
+f5_df[f5_df < 5] = 0
+input_f5$data_loaded <- f5_df
+
+#f10_df <- input_f10$data_loaded
+#f10_df[f10_df < 10] = 0
+#input_f10$data_loaded <- f10_df
+
+# Check % of reads lost
+totreads_inputf2 <- input_f2$data_loaded %>% colSums() %>% sum()
+totreads_inputf5 <- input_f5$data_loaded %>% colSums() %>% sum()
+
+(totreads_inputf2/totreads_inputf)*100
+(totreads_inputf5/totreads_inputf)*100
+
+# Summary of reads
+clean_reads_per_sample.f2 <- sort(colSums(input_f2$data_loaded))
+summary(clean_reads_per_sample.f2)
+
+clean_reads_per_sample.f5 <- sort(colSums(input_f5$data_loaded))
+summary(clean_reads_per_sample.f5)
+```
+
+## Normalization
+### Rarefaction
+Rarefaction test levels: 500 (green); 2000 (red); 5000 (blue)
+```{r Rarefaction (pooled), message = FALSE}
+sort(colSums(input_filt.f$data_loaded), decreasing = TRUE)
+sort(colSums(input_f2$data_loaded), decreasing = TRUE)
+sort(colSums(input_f5$data_loaded), decreasing = TRUE)
+# sort(colSums(input_f10$data_loaded), decreasing = TRUE)
+
+
+rar_level0 <- 500
+rar_level1 <- 2000
+rar_level2 <- 5000
+
+readcount_hist_all <- data.frame(ReadCounts = sort(colSums(input_filt$data_loaded))) %>%
+  rownames_to_column(var = "SampleID") %>%
+  ggplot() +
+  geom_histogram(aes(x = ReadCounts)) + 
+  geom_vline(xintercept = rar_level0, color = "green") +
+  geom_vline(xintercept = rar_level1, color = "red") +
+  geom_vline(xintercept = rar_level2, color = "blue") +
+  xlab("# reads")+
+  ylab("# samples")+
+  theme_bw(base_size = 14)+
+  ggtitle("Histogram of Read Counts (pooled)")
+readcount_hist_all
+```
+
+#### create rarefied dataframes
+```{r Make rarefied dataframes (pooled), message = FALSE}
+### unfiltered data
+input_filt_rar1 <- single_rarefy(input_filt.f, rar_level0)
+input_filt_rar2 <- single_rarefy(input_filt.f, rar_level1)
+input_filt_rar3 <- single_rarefy(input_filt.f, 4000)
+
+### f2 filtered data
+input_f2_rar1 <- single_rarefy(input_f2, 20)
+input_f2_rar2 <- single_rarefy(input_f2, 2000)
+input_f2_rar3 <- single_rarefy(input_f2, 4000)
+
+### f5 filtered data
+input_f5_rar1 <- single_rarefy(input_f5, 20)
+input_f5_rar2 <- single_rarefy(input_f5, 1000)
+input_f5_rar3 <- single_rarefy(input_f5, 4000)
+
+### f10 filtered data
+# input_f10_rar1 <- single_rarefy(input_f10, 20)
+# input_f10_rar2 <- single_rarefy(input_f10, 1000)
+# input_f10_rar3 <- single_rarefy(input_f10, 3000)
+```
+
+#### create relative abundance dataframes
+```{r relative abundance dataframes}
+
+# input = cleaned ASVs
+input_filt_relab <- convert_to_relative_abundances(input = input_filt.f)
+
+input_f2_relab <- convert_to_relative_abundances(input = input_f2)
+
+input_f5_relab <- convert_to_relative_abundances(input = input_f5)
+
+input_f10_relab <- convert_to_relative_abundances(input = input_f10)
+```
+
+
+### Save dataframes for downstream uses
+```{r}
+## clean raw data
+saveRDS(object = input_filt.f, file = paste0(outputs_01_clean.fp, "/input_filt.RDS"))
+
+## rarefied raw data (4000 reads)
+saveRDS(object = input_filt_rar3, file = paste0(outputs_01_clean.fp, "/input_filt_rar4k.RDS"))
+
+## relative abundance raw data
+saveRDS(object = input_filt_relab, file = paste0(outputs_01_clean.fp, "/input_filt_relab.RDS"))
+
+## clean filt2 data
+saveRDS(object = input_f2, file = paste0(outputs_01_clean.fp, "/input_f2.RDS"))
+
+input_f2 <- readRDS(file = paste0(outputs_01_clean.fp, "/input_f2.RDS"))
+
+## clean filt2 data relative abundance
+saveRDS(object = input_f2_relab, file = paste0(outputs_01_clean.fp, "/input_f2_relab.RDS"))
+
+## clean filt2 data rarefied (2000,4000 reads)
+saveRDS(object = input_f2_rar3, file = paste0(outputs_01_clean.fp, "/input_f2_rar4k.RDS"))
+saveRDS(object = input_f2_rar2, file = paste0(outputs_01_clean.fp, "/input_f2_rar2k.RDS"))
+```
+
+
+
+## Make sample specific dataframes (separate samples based on type, e.g. root, soil, seed)
+
+#### relative abundance data, different filtered thresholds 
+```{r}
+### all data
+input_rl_samps1 = filter_data(input_filt_relab, 'sample_type_2', keep_vals = c("rhizo","root","seed","slurry", "soil"))
+input_rl_samps2 = filter_data(input_filt_relab, 'sample_type_2', keep_vals = c("rhizo","root","slurry","soil"))
+input_rl_samps3 = filter_data(input_filt_relab, 'sample_type_2', keep_vals = c("rhizo","root"))
+
+input_rl_samps4 = filter_data(input_filt_relab, 'sample_type_2', keep_vals = c("slurry","soil"))
+input_rl_samps5 = filter_data(input_filt_relab, 'sample_type_2', keep_vals = c("rhizo"))
+input_rl_samps6 = filter_data(input_filt_relab, 'sample_type_2', keep_vals = c("root"))
+input_rl_samps7 = filter_data(input_filt_relab, 'sample_type_2', keep_vals = c("seed"))
+
+### f2 data
+input_f2rl_samps1 = filter_data(input_f2_relab, 'sample_type_2', keep_vals = c("rhizo","root","seed","slurry", "soil"))
+input_f2rl_samps2 = filter_data(input_f2_relab, 'sample_type_2', keep_vals = c("rhizo","root","slurry","soil"))
+input_f2rl_samps3 = filter_data(input_f2_relab, 'sample_type_2', keep_vals = c("rhizo","root"))
+
+input_f2rl_samps4 = filter_data(input_f2_relab, 'sample_type_2', keep_vals = c("slurry","soil"))
+input_f2rl_samps5 = filter_data(input_f2_relab, 'sample_type_2', keep_vals = c("rhizo"))
+input_f2rl_samps6 = filter_data(input_f2_relab, 'sample_type_2', keep_vals = c("root"))
+input_f2rl_samps7 = filter_data(input_f2_relab, 'sample_type_2', keep_vals = c("seed"))
+input_f2rl_samps7.1 = filter_data(input_f2rl_samps7, 'condition', filter_vals = c("B"))
+
+### f5 data
+input_f5rl_samps1 = filter_data(input_f5_relab, 'sample_type_2', keep_vals = c("rhizo","root","seed","slurry", "soil"))
+input_f5rl_samps2 = filter_data(input_f5_relab, 'sample_type_2', keep_vals = c("rhizo","root","slurry","soil"))
+input_f5rl_samps3 = filter_data(input_f5_relab, 'sample_type_2', keep_vals = c("rhizo","root"))
+
+input_f5rl_samps4 = filter_data(input_f5_relab, 'sample_type_2', keep_vals = c("slurry","soil"))
+input_f5rl_samps5 = filter_data(input_f5_relab, 'sample_type_2', keep_vals = c("rhizo"))
+input_f5rl_samps6 = filter_data(input_f5_relab, 'sample_type_2', keep_vals = c("root"))
+input_f5rl_samps7 = filter_data(input_f5_relab, 'sample_type_2', keep_vals = c("seed"))
+input_f5rl_samps7.1 = filter_data(input_f5rl_samps7, 'condition', filter_vals = c("B"))
+
+
+```
+
+
+```{r}
+### calculating sample summary info
+### f2 data
+input_f2_soil = filter_data(input_f2, 'sample_type_2', keep_vals = c("soil"))
+input_f2_slurry = filter_data(input_f2, 'sample_type_2', keep_vals = c("slurry"))
+input_f2_rhizo = filter_data(input_f2, 'sample_type_2', keep_vals = c("rhizo"))
+input_f2_root = filter_data(input_f2, 'sample_type_2', keep_vals = c("root"))
+
+#num reads
+summary(colSums(input_f2_soil$data_loaded !=0))
+
+```
+
+#### rarefied data - sample specific data frames at different filtered thresholds
+```{r}
+### all rarefied data
+input_filt_rar1$map_loaded$sample_type_2 %>% unique()
+
+input_rar1_samps1 = filter_data(input_filt_rar1, 'sample_type_2', keep_vals = c("rhizo","root","seed","slurry", "soil"))
+input_rar1_samps2 = filter_data(input_filt_rar2, 'sample_type_2', keep_vals = c("rhizo","root","slurry","soil"))
+input_rar1_samps3 = filter_data(input_filt_rar2, 'sample_type_2', keep_vals = c("rhizo","root"))
+
+input_rar1_samps4 = filter_data(input_filt_rar2, 'sample_type_2', keep_vals = c("slurry","soil"))
+input_rar1_samps5 = filter_data(input_filt_rar2, 'sample_type_2', keep_vals = c("rhizo"))
+input_rar1_samps6 = filter_data(input_filt_rar2, 'sample_type_2', keep_vals = c("root"))
+input_rar1_samps7 = filter_data(input_filt_rar1, 'sample_type_2', keep_vals = c("seed"))
+
+### f2 rarefied data
+input_f2_samps1 = filter_data(input_f2_rar1, 'sample_type_2', keep_vals = c("rhizo","root","seed","slurry", "soil"))
+input_f2_samps2 = filter_data(input_f2_rar3, 'sample_type_2', keep_vals = c("rhizo","root","slurry","soil"))
+input_f2_samps3 = filter_data(input_f2_rar3, 'sample_type_2', keep_vals = c("rhizo","root"))
+
+input_f2_samps4 = filter_data(input_f2_rar3, 'sample_type_2', keep_vals = c("slurry","soil"))
+input_f2_samps5 = filter_data(input_f2_rar3, 'sample_type_2', keep_vals = c("rhizo"))
+input_f2_samps6 = filter_data(input_f2_rar3, 'sample_type_2', keep_vals = c("root"))
+input_f2_samps7 = filter_data(input_f2_rar1, 'sample_type_2', keep_vals = c("seed"))
+input_f2_samps7.1 = filter_data(input_f2_samps7, 'condition', filter_vals = c("B"))
+
+### f5 rarefied data
+input_f5_samps1 = filter_data(input_f5_rar1, 'sample_type_2', keep_vals = c("rhizo","root","seed","slurry", "soil"))
+input_f5_samps2 = filter_data(input_f5_rar2, 'sample_type_2', keep_vals = c("rhizo","root","slurry","soil"))
+input_f5_samps3 = filter_data(input_f5_rar2, 'sample_type_2', keep_vals = c("rhizo","root"))
+
+input_f5_samps4 = filter_data(input_f5_rar2, 'sample_type_2', keep_vals = c("slurry","soil"))
+input_f5_samps5 = filter_data(input_f5_rar2, 'sample_type_2', keep_vals = c("rhizo"))
+input_f5_samps6 = filter_data(input_f5_rar2, 'sample_type_2', keep_vals = c("root"))
+input_f5_samps7 = filter_data(input_f5_rar1, 'sample_type_2', keep_vals = c("seed"))
+input_f5_samps7.1 = filter_data(input_f5_samps7, 'condition', filter_vals = c("B"))
+
+### f10 rarefied data
+# input_f10_samps1 = filter_data(input_f10_rar1, 'sample_type_2', keep_vals = c("rhizo","root","seed","slurry", "soil"))
+# input_f10_samps2 = filter_data(input_f10_rar2, 'sample_type_2', keep_vals = c("rhizo","root","slurry","soil"))
+# input_f10_samps3 = filter_data(input_f10_rar2, 'sample_type_2', keep_vals = c("rhizo","root"))
+# 
+# input_f10_samps4 = filter_data(input_f10_rar2, 'sample_type_2', keep_vals = c("slurry","soil"))
+# input_f10_samps5 = filter_data(input_f10_rar2, 'sample_type_2', keep_vals = c("rhizo"))
+# input_f10_samps6 = filter_data(input_f10_rar2, 'sample_type_2', keep_vals = c("root"))
+# input_f10_samps7 = filter_data(input_f5_rar1, 'sample_type_2', keep_vals = c("seed"))
+```
+
+
+
+## Compare Samples and Blanks
+
+##### plotting settings 
+adding for a better color palette
+```{r}
+pair.pal2 <- c("#FFFF99", "#1F78B4", "#33A02C", "#E31A1C", "#FF7F00", "#6A3D9A", "#A6CEE3","#B2DF8A","#FB9A99","#FDBF6F","#CAB2D6")
+```
+
+### NMDS Visualization
+visualizing community differences between blanks and samples
+```{r, include=FALSE}
+#### Visualization: NMDS of filtered (pooled) data, all samples (relative abundance to include all blanks)
+## distance matrix for plotting
+input_filt_rl <- convert_to_relative_abundances(input_filt.f1)
+sb_transformed <- t(sqrt(input_filt_rl$data_loaded))
+dm <- vegdist(sb_transformed, method = "bray")
+sb.nmds <- metaMDS(dm, k = 2, trymax = 50)
+
+## plot nmds
+nmds_all <- plot_ordination(input = input_filt_rl, ordination_axes = sb.nmds$points, color_cat = 'sample_type_2')+
+  ggtitle("NMDS plot of all samples (relative abundance")
+nmds_all
+
+ggsave(nmds_all, filename = paste0(figures_01_clean.fp, "/nmdsall_2.png"), height = 8, width = 10)
+```
+
+
+```{r}
+#### Visualization: NMDS of filtered (pooled) data, all samples (rarefied data, many blanks omitted)
+## distance matrix for plotting
+sb_transformed.r1 <- t(sqrt(input_filt_rar1$data_loaded))
+dm.r1 <- vegdist(sb_transformed.r1, method = "bray")
+sb.r1.nmds <- metaMDS(dm.r1, k = 2, trymax = 50)
+
+names(input_filt_rar1$map_loaded)
+
+## plot nmds
+nmds_r1 <- plot_ordination(input = input_filt_rar1, ordination_axes = sb.r1.nmds$points, color_cat = 'sample_type_2')+
+  ggtitle("NMDS plot of rarefied bacterial reads (pooled)")
+  #theme(legend.position = "none")
+nmds_r1
+
+#ggsave(nmds_r1, filename = paste0(figures_01_clean.fp, "/nmdsall_r1.png"), height = 8, width = 10)
+```
+
+
+## NMDS ordination plots for exploratory visualization (now on fully cleaned data)
+visualizing community differences across sample types
+```{r}
+# NMDS plot of filtered, rarefied samples
+## distance matrix for plotting
+sb_transformed.s2 <- t(sqrt(input_f2_samps2$data_loaded))
+dm.s2 <- vegdist(sb_transformed.s2, method = "bray")
+sb.s2.nmds <- metaMDS(dm.s2, k = 3, trymax = 50)
+
+## plot nmds
+nmds_s2 <- plot_ordination(input = input_f2_samps2, ordination_axes = sb.s2.nmds$points[,1:2], 
+                           shape_cat = 'sample_type_2', color_cat = "condition")+
+  ggtitle("NMDS plot of filtered, rarefied samples")
+  #scale_colour_manual(values=pair.pal2)
+  #theme(legend.position = "none")
+nmds_s2
+##
+ggsave(nmds_s2, filename = paste0(figures_01_clean.fp, "/nmds_allsamp_f2.png"), height = 8, width = 10)
+
+
+####################################
+####################################
+
+# NMDS plot of root and rhizosphere samples
+## distance matrix for plotting
+sb_transformed.s3 <- t(sqrt(input_f2_samps3$data_loaded))
+dm.s3 <- vegdist(sb_transformed.s3, method = "bray")
+sb.s3.nmds <- metaMDS(dm.s3, k = 3, trymax = 50)
+
+## plot nmds
+nmds_s3 <- plot_ordination(input = input_f2_samps3, ordination_axes = sb.s3.nmds$points[,1:2], 
+                           shape_cat = 'sample_type_2', color_cat = "condition")+
+  ggtitle("NMDS plot of root and rhizosphere samples")+
+  scale_colour_manual(values=pair.pal2)
+  #theme(legend.position = "none")
+nmds_s3
+###
+ggsave(nmds_s3, filename = paste0(figures_01_clean.fp, "/nmds_rootrhizo_f2.png"), height = 8, width = 10)
+
+
+####################################
+####################################
+
+# NMDS plot of slurry and origin soil
+## distance matrix for plotting
+sb_transformed.s4 <- t(sqrt(input_f2_samps4$data_loaded))
+dm.s4 <- vegdist(sb_transformed.s4, method = "bray")
+sb.s4.nmds <- metaMDS(dm.s4, k = 2, trymax = 50)
+
+## plot nmds
+nmds_s4 <- plot_ordination(input = input_f2_samps4, ordination_axes = sb.s4.nmds$points, 
+                           shape_cat = 'sample_type_2', color_cat = "condition")+
+  ggtitle("NMDS plot of slurry and origin soil")+
+  scale_colour_manual(values=pair.pal2)
+  #theme(legend.position = "none")
+nmds_s4
+ggsave(nmds_s4, filename = paste0(figures_01_clean.fp, "/nmds_alurrysoil.png"), height = 8, width = 10)
+
+####################################
+####################################
+# NMDS plot of rhizosphere samples
+
+## distance matrix for plotting
+sb_transformed.s5 <- t(sqrt(input_f2_samps5$data_loaded))
+dm.s5 <- vegdist(sb_transformed.s5, method = "bray")
+sb.s5.nmds <- metaMDS(dm.s5, k = 3, trymax = 50)
+
+## plot nmds
+nmds_s5 <- plot_ordination(input = input_f2_samps5, ordination_axes = sb.s5.nmds$points[,1:2], 
+                          color_cat = "condition", shape = "sterility", hulls = TRUE)+
+  ggtitle("NMDS plot of rhizosphere samples")+
+  scale_colour_manual(values=pair.pal2)+
+  scale_fill_manual(values=pair.pal2)
+  #theme(legend.position = "none")
+nmds_s5
+
+ggsave(nmds_s5, filename = paste0(figures_01_clean.fp, "/nmds_rhizo_f2r3.png"), height = 8, width = 10)
+
+####################################
+####################################
+
+# NMDS plot of root samples
+## distance matrix for plotting
+sb_transformed.s6 <- t(sqrt(input_f2_samps6$data_loaded))
+dm.s6 <- vegdist(sb_transformed.s6, method = "bray")
+sb.s6.nmds <- metaMDS(dm.s6, k = 2, trymax = 50)
+
+## plot nmds
+nmds_s6 <- plot_ordination(input = input_f2_samps6, ordination_axes = sb.s6.nmds$points, 
+                           color_cat = "condition", shape = "sterility", hulls = TRUE)+
+  scale_colour_manual(values=pair.pal2)+
+  scale_fill_manual(values=pair.pal2)+
+  ggtitle("NMDS plot of root samples")
+  #theme(legend.position = "none")
+nmds_s6
+
+ggsave(nmds_s6, filename = paste0(figures_01_clean.fp, "/nmds_root_f2r3.png"), height = 8, width = 10)
+
+```

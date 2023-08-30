@@ -1,0 +1,976 @@
+---
+title: "02_exploration"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Set up
+
+### Load libraries
+```{r}
+library(mctoolsr)
+library(plyr) 
+library(tidyverse) 
+library(vegan)
+library(plotly)
+library(readr)
+library(raster)
+library(viridis)
+library(devtools)
+library(ggbiplot)
+
+set.seed(10)
+```
+
+### Set up input and output directories
+```{r Set up input and output directories, include = FALSE}
+project.fp <- "/Users/coin8046/Desktop/FiererLabNotebook_copy/mustard_microbiome/mustard_16S/r_analyses"
+clean_data.fp <- file.path(project.fp, "01_clean_data")
+    figures_01_clean.fp <- file.path(clean_data.fp, "figures")
+    outputs_01_clean.fp <- file.path(clean_data.fp, "outputs")
+
+explr_02.fp <- file.path(project.fp, "02_exploration")
+    figures_02.fp <- file.path(explr_02.fp, "figures")
+    outputs_02.fp <- file.path(explr_02.fp, "outputs")
+
+# if (!dir.exists(explr_02.fp)) {dir.create(explr_02.fp, recursive = TRUE)}    
+# if (!dir.exists(figures_02.fp)) {dir.create(figures_02.fp, recursive = TRUE)}
+# if (!dir.exists(outputs_02.fp)) {dir.create(outputs_02.fp, recursive = TRUE)}
+```
+
+## Data set up 
+
+### Read in 16S data
+```{r}
+## clean raw data
+input_filt <- readRDS(paste0(outputs_01_clean.fp, "/input_filt.RDS"))
+
+## rarefied raw data (4000 reads)
+input_rar <- readRDS(paste0(outputs_01_clean.fp, "/input_filt_rar4k.RDS"))
+
+## relative abundance raw data
+input_relab <- readRDS(paste0(outputs_01_clean.fp, "/input_filt_relab.RDS"))
+
+## clean filt2 data
+input_f2.r <- readRDS(paste0(outputs_01_clean.fp, "/input_f2.RDS"))
+input_f2 <- rename_samples(input_f2.r, name_header = "SampleID_2")#M2-9_rhizp
+
+## clean filt2 data relative abundance
+input_f2_relab <- readRDS(paste0(outputs_01_clean.fp, "/input_f2_relab.RDS"))
+
+## clean filt2 data rarefied (2000,4000 reads)
+input_f2_rar2 <- readRDS(paste0(outputs_01_clean.fp, "/input_f2_rar4k.RDS"))
+input_f2_rar1 <- readRDS(paste0(outputs_01_clean.fp, "/input_f2_rar2k.RDS"))
+
+# rarefy to 10k
+## clean filt2 data
+#input_f2_rar10k.r <- single_rarefy(input = input_f2, depth = 10000)
+#saveRDS(input_f2_rar10k.r, paste0(outputs_01_clean.fp, "/input_f2_rar10k.RDS"))
+
+input_f2_rar10k <- readRDS(paste0(outputs_01_clean.fp, "/input_f2_rar10k.RDS"))
+```
+
+
+### Read in sample metadata
+```{r}
+metadata.r <- readRDS("/Users/coin8046/Desktop/FiererLabNotebook_copy/mustard_microbiome/mustard_chem/01_outputs/plant.chem_data_11.10.RDS") #plant.chem_data.RDS
+
+## remove duplicate row
+metadata <- metadata.r[-c(70), ]
+
+## get sample IDs for later merging
+sampleIDs <- metadata$Pot.ID
+
+```
+
+#### Adjust mapping file
+```{r}
+# extract mapping file with metadata from mctoolsr object
+map.rr2 <- input_f2_rar2$map_loaded
+
+map.rr10 <- input_f2_rar10k.r$map_loaded
+## NOTE, don't do this below! typos fixed in sample ID 2, just keeping this here as a visual note on typos in sample ids
+# map.rr[12, 1] <- "B4_rhizo"
+# map.rr[40, 1] <- "M1-9_rhizo"
+# map.rr[66, 1] <- "M2-9_rhizo"
+# map.rr[159, 1] <- "S1-4_rhizo"
+# map.rr[213, 1] <- "S4-6_rhizo"
+
+# get mapping files in order, make new ID column for later merging of other data
+map.r2 <- map.rr2 %>% 
+  mutate(SampleID_3 = gsub('(.*)_\\w+', '\\1', SampleID_2)) %>% 
+  mutate(soil_type = as.factor(soil_type))
+
+map.r10 <- map.rr10 %>% 
+  mutate(SampleID_3 = gsub('(.*)_\\w+', '\\1', SampleID_2)) %>% 
+  mutate(soil_type = as.factor(soil_type))
+
+# add "fixed" mapping files back to mctoolsr object
+input_f2_rar2$map_loaded <- map.r2
+input_f2_rar1$map_loaded <- map.r2
+input_f2_rar10k.r$map_loaded <- map.r10
+
+input_f2_rar10k.c <- input_f2_rar10k.r 
+input_f2_rar2.c <- input_f2_rar2
+input_f2_rar1.c <- input_f2_rar1
+
+```
+
+### Make sample specific dataframes
+subset data based on sample type for downstream visualization and analysis
+```{r}
+### f2 data
+input_f2_samps1 = filter_data(input_f2_relab, 'sample_type_2', keep_vals = c("rhizo","root","seed","slurry", "soil"))
+
+input_f2_samps2 = filter_data(input_f2_rar10k, 'sample_type_2', keep_vals = c("rhizo","root","slurry","soil"))
+input_f2_samps3 = filter_data(input_f2_rar2, 'sample_type_2', keep_vals = c("rhizo","root"))
+input_f2_samps4 = filter_data(input_f2_rar10k, 'sample_type_2', keep_vals = c("slurry","soil"))
+input_f2_samps4.nb = filter_data(input_f2_samps4, 'sterility', keep_vals = c("M","S"))
+
+
+input_f2_samps5 = filter_data(input_f2_rar10k.r, 'sample_type_2', keep_vals = c("rhizo"))
+input_f2_samps5.c = filter_data(input_f2_rar10k.c, 'sample_type_2', keep_vals = c("rhizo"))
+test <- subset(input_f2_rar10k.c$map_loaded, sample_type_2 == "rhizo")
+
+
+input_f2_samps6 = filter_data(input_f2_rar2, 'sample_type_2', keep_vals = c("root")) #input_f2_rar2
+input_f2_samps6.c = filter_data(input_f2_rar2.c, 'sample_type_2', keep_vals = c("root"))
+```
+
+
+### Filter data to keep only samples with chem info
+Of the 109 total plant samples, only ~90 have associated seed chemical data. 
+Remove samples without chemical data for downstream analyses. 
+```{r}
+## keep samples with chem data
+
+###RHIZO
+inputf2_rhizo.chem = filter_data(input_f2_samps5.c, 'SampleID_3', keep_vals = sampleIDs)
+
+## add chem data to mapping file
+map.cr <- inputf2_rhizo.chem$map_loaded
+map.c <- map.cr %>% 
+  dplyr::inner_join(metadata, by = c("SampleID_3" = "Pot.ID")) %>% 
+  column_to_rownames(var = "sample_id")
+inputf2_rhizo.chem$map_loaded <- map.c
+
+input_f2_rhizo.M = filter_data(inputf2_rhizo.chem, 'sterility.y', keep_vals = c("M"))
+input_f2_rhizo.S = filter_data(inputf2_rhizo.chem, 'sterility.y', keep_vals = c("S"))
+
+###ROOTS
+inputf2_root.chem = filter_data(input_f2_samps6.c, 'SampleID_3', keep_vals = sampleIDs)
+## add chem data to mapping file
+map.cr2 <- inputf2_root.chem$map_loaded
+map.c2 <- map.cr2 %>% 
+  dplyr::inner_join(metadata, by = c("SampleID_3" = "Pot.ID")) %>% 
+  column_to_rownames(var = "SampleID_2")
+inputf2_root.chem$map_loaded <- map.c2
+
+input_f2_root.M = filter_data(inputf2_root.chem, 'sterility.x', keep_vals = c("M"))
+input_f2_root.S = filter_data(inputf2_root.chem, 'sterility.x', keep_vals = c("S"))
+
+# save data frames for later use
+# saveRDS(inputf2_rhizo.chem, paste0(outputs_02.fp, "/input_rhizo.chem10.RDS"))
+# saveRDS(input_f2_rhizo.M, paste0(outputs_02.fp, "/input_rhizo.cM10.RDS"))
+# saveRDS(input_f2_rhizo.S, paste0(outputs_02.fp, "/input_rhizo.cS10.RDS"))
+
+# saveRDS(inputf2_root.chem, paste0(outputs_02.fp, "/input_root.chem.RDS"))
+# saveRDS(input_f2_root.M, paste0(outputs_02.fp, "/input_root.cM.RDS"))
+# saveRDS(input_f2_root.S, paste0(outputs_02.fp, "/input_root.cS.RDS"))
+
+#inputf2_rhizo.chem, input_f2_rhizo.M, input_f2_rhizo.S  
+
+# read back in data frames that were created in this block
+inputf2_rhizo.chem <- readRDS(paste0(outputs_02.fp, "/input_rhizo.chem10.RDS"))
+input_f2_rhizo.M <- readRDS(paste0(outputs_02.fp, "/input_rhizo.cM10.RDS"))
+input_f2_rhizo.S <- readRDS(paste0(outputs_02.fp, "/input_rhizo.cS10.RDS"))
+```
+
+
+##### Colors for plotting
+```{r}
+library(wesanderson)
+
+rainbow <- wes_palette("Zissou1", 100, type = "continuous")
+
+pal11 <- c("#D53E4F",  "#FDAE61", "#ABDDA4","#9E0142", "#66C2A5", "#3288BD", "#5E4FA2", "#F46D43","#E6F598",  "#5BA9BC", "#708090")
+
+pal11s <- c("#3288BD", "#D53E4F",  "#FDAE61", "#ABDDA4","#9E0142", "#66C2A5", "#5E4FA2", "#F46D43","#5BA9BC", "#E6F598", "#708090")
+
+##### other plotting settings
+pair.pal2 <- c("#FFFF99", "#1F78B4", "#33A02C", "#E31A1C", "#FF7F00", "#6A3D9A", "#A6CEE3","#B2DF8A","#FB9A99","#FDBF6F","#CAB2D6")
+
+pair.pal2.g <- c("#BEBEBE", "#1F78B4", "#33A02C", "#E31A1C", "#FF7F00", "#6A3D9A", "#BEBEBE","#BEBEBE","#BEBEBE","#BEBEBE","#BEBEBE")
+
+
+##new palettes
+scale_colour_brewer(type = "seq", palette = "Spectral")
+
+# #44AA99, #88CCEE, #CC6677, #AA4499, #882255 (blank: #DDCC77)
+# #332288, #88CCEE, #44AA99, #117733, #999933, #DDCC77 (blank #BBBBBB)
+
+palmuteG <- c("#BEBEBE", "#332288", "#88CCEE", "#44AA99", "#117733", "#999933",  "#BEBEBE","#BEBEBE","#BEBEBE","#BEBEBE","#BEBEBE") ##DDCC77"
+
+palmute2 <- c("#BEBEBE", "#332288", "#88CCEE", "#44AA99", "#117733", "#999933", "#332288", "#88CCEE", "#44AA99", "#117733", "#999933", "#DDCC77")
+```
+
+
+## Exploratory Analysis
+### Stacked bar plots - rhizosphere
+stacked bar plot of rhizosphere samples to visualize taxonomic composition
+```{r}
+# summarize taxonomy at phyla level
+ts_phyla_rhizo.c <- summarize_taxonomy(input = inputf2_rhizo.chem, level = 2, report_higher_tax =  FALSE)
+
+# summarize taxonomy at class level
+class_rhizo.c <- summarize_taxonomy(input = inputf2_rhizo.chem, level = 3, report_higher_tax =  FALSE)
+rowSums(class_rhizo.c) %>% sort(decreasing = TRUE)
+# top 4 classes: Bacteroidia      Alphaproteobacteria      Gammaproteobacteria         Verrucomicrobia
+## ASV stats
+colSums(inputf2_rhizo.chem$data_loaded !=0) %>% summary()
+  #  Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+  # 646.0   860.0   942.5   919.4   987.5  1169.0 
+
+# summarize taxonomy at class level, doing "sterile" and "microbial treatments separately
+ts_phyla_rhizoM.c <- summarize_taxonomy(input = input_f2_rhizo.M, level = 3, report_higher_tax =  FALSE)
+ts_phyla_rhizoS.c <- summarize_taxonomy(input = input_f2_rhizo.S, level = 3, report_higher_tax =  FALSE)
+
+# reorder classes based on abundance of alphaproteos, for later plotting
+orderM <- ts_phyla_rhizoM.c %>% t() %>% as.data.frame() %>% 
+  dplyr::select(Alphaproteobacteria) %>% 
+  arrange(Alphaproteobacteria) %>% 
+  rownames_to_column(var = "sample_name") %>% 
+  dplyr::select(sample_name) %>% 
+  unlist(use.names = FALSE)
+
+orderS <- ts_phyla_rhizoS.c %>% dplyr::select(-"S4-10_rhizo") %>% 
+  t() %>% as.data.frame() %>% 
+  dplyr::select(Alphaproteobacteria) %>% # Bacteroidia, #Bacteroidota
+  arrange(Alphaproteobacteria) %>% 
+  rownames_to_column(var = "sample_name") %>% 
+  dplyr::select(sample_name) %>% 
+  unlist(use.names = FALSE)
+
+# make stacked barplots
+
+stbr_rhizoM.c <- plot_taxa_bars(ts_phyla_rhizoM.c, metadata_map = input_f2_rhizo.M$map_loaded, type_header = 'SampleID_2', num_taxa = 10)+
+  scale_fill_manual(values = pal11)+
+  theme(axis.text.x = element_text(angle=90))+
+  scale_x_discrete(limits=c(orderM))
+  
+
+stbr_rhizoS.c <- plot_taxa_bars(ts_phyla_rhizoS.c, metadata_map = input_f2_rhizo.S$map_loaded, type_header = 'SampleID_2', num_taxa = 10)+
+  scale_fill_manual(values = pal11s)+
+  theme(axis.text.x = element_text(angle=90))+
+  scale_x_discrete(limits=c(orderS))
+  
+
+#########################
+#########################
+# save
+ggsave(stbr_rhizoM.c, filename = paste0(figures_02.fp, "/stbr_rhizoM_3.27.png"), width = 12, height = 8, dpi = 300)
+ggsave(stbr_rhizoS.c, filename = paste0(figures_02.fp, "/stbr_rhizoS_3.27.png"), width = 12, height = 8, dpi = 300)
+
+```
+
+### Stacked bar plots - roots
+stacked bar plot of ROOT samples to visualize taxonomic composition
+```{r}
+# summaraize taxonomy at phyla level
+ts_phyla_rootM.c <- summarize_taxonomy(input = input_f2_root.M, level = 2, report_higher_tax =  FALSE)
+ts_phyla_rootS.c <- summarize_taxonomy(input = input_f2_root.S, level = 2, report_higher_tax =  FALSE)
+
+# reorder for later plotting, based on abundance of proteobacteria
+orderMrt <- ts_phyla_rootM.c %>% t() %>% as.data.frame() %>% 
+  dplyr::select(Proteobacteria) %>% 
+  arrange(Proteobacteria) %>% 
+  rownames_to_column(var = "sample_name") %>% 
+  dplyr::select(sample_name) %>% 
+  unlist(use.names = FALSE)
+
+orderSrt <- ts_phyla_rootS.c %>%  
+  t() %>% as.data.frame() %>% 
+  dplyr::select(Proteobacteria) %>% 
+  arrange(Proteobacteria) %>% 
+  rownames_to_column(var = "sample_name") %>% 
+  dplyr::select(sample_name) %>% 
+  unlist(use.names = FALSE)
+
+# plot
+
+stbr_rootM.c <- plot_taxa_bars(ts_phyla_rootM.c, metadata_map = input_f2_root.M$map_loaded, type_header = 'sample_id', num_taxa = 10)+
+  scale_fill_manual(values = pal11)+
+  theme(axis.text.x = element_text(angle=90))+
+  scale_x_discrete(limits=c(orderMrt))
+  
+
+stbr_rootS.c <- plot_taxa_bars(ts_phyla_rootS.c, metadata_map = input_f2_root.S$map_loaded, type_header = 'sample_id', num_taxa = 10)+
+  scale_fill_manual(values = pal11)+
+  theme(axis.text.x = element_text(angle=90))+
+  scale_x_discrete(limits=c(orderSrt))
+  
+
+#########################
+#########################
+# save
+ggsave(stbr_rootM.c , filename = paste0(figures_02.fp, "/stbr_rootM_12.9.png"), width = 12, height = 8, dpi = 300)
+ggsave(stbr_rootS.c, filename = paste0(figures_02.fp, "/stbr_rootS_12.9.png"), width = 12, height = 8, dpi = 300)
+```
+
+
+### Glucosinolate stacked bar plot
+plotting glucosinolate content for metagenomic sample choosing
+```{r}
+## color palettes for this plot only
+pal3 <-c("#BEBEBE", "#E31A1C", "#BEBEBE") #"#1F78B4"
+pal2M <- c("#B3B3B3", "#882255") #"#CC6677"
+
+## sample ideas of samples that also had metagenomic sequencing  
+metaGsamps <- c("M1-10", "M1-2", "M2-1", "M2-2", "M2-3", "M3-10",	"M3-5",	"M3-6",
+                "M3-7",	"M3-8",	"M3-9",	"M4-1",	"M4-10",	"M4-2",	"M4-3",	"M4-5",
+                "M4-7",	"M5-10",	"M5-3",	"M5-4",	"M5-5",	"M5-7",	"M5-8")
+
+## create dataframe with metagenomic sample seed glucosinolate info
+metadata.tmp <- metadata %>% 
+  mutate(Metagenomics = ifelse(test = Pot.ID %in% metaGsamps, yes = "sequenced", no = "not sequenced")) %>% 
+  mutate(Total_gsl = Allyl..µmol.g.+X3.Butenyl..µmol.g.+X3MT..µmol.g.+Indoles..µmol.g.) %>% 
+  mutate(allyl_prop = Allyl..µmol.g./Total_gsl*100)
+
+sort(metadata.tmp$allyl_prop)
+sort(metadata.tmp$Total_gsl)
+
+19.485500/0.041000
+
+## reformat to long for later plotting
+metadata.long <- metadata.tmp %>% 
+  pivot_longer(cols = c("Allyl..µmol.g.", "X3.Butenyl..µmol.g.", "X3MT..µmol.g.", "Indoles..µmol.g."), names_to = "gsl_type", values_to = "gsl_conc")
+
+metadata.long.tmp <- metadata.long
+metadata.long.tmp$gsl_type <- as.factor(metadata.long.tmp$gsl_type)
+levels(metadata.long.tmp$gsl_type) <- c("Allyl","Butenyl","3MT","Indole")
+
+## create stacked bar plot of glucosinolate content across samples (highlighting samples with metagenomic data)
+gsl.range_bar <- ggplot(metadata.long.tmp, aes(x = reorder(Pot.ID, `Total_gsl`), y = gsl_conc, fill = gsl_type, group_by = Pot.ID))+#fill = Metagenomics
+  geom_col() +#fill = "#B3B3B3"
+  scale_fill_viridis(option = "plasma", begin = 0.75, end = 0.15, discrete = TRUE, 
+                     name = "Glucosinolate type", )+
+  theme_bw(base_size = 25)+
+  theme(axis.text.x = element_text(hjust = 1, angle = 45, size = 10))+
+  xlab("Sample")+
+  ylab("Seed glucosinolates\n(µmol/g)")+
+  theme(legend.position = "top")
+gsl.range_bar
+
+## save
+ggsave(gsl.range_bar, filename = paste0(figures_02.fp, "/gsl.range_bar_4.14.png"), width = 16, height = 6, dpi = 300)
+
+```
+
+
+### Richness and read count exploration
+```{r}
+# rhizo: input_f2_samps5
+# roots: input_f2_samps6
+# soil and slurry: input_f2_samps4
+
+# subset minimally processed data for this check
+filt_rhizo <- filter_data(input_f2, 'sample_type_2', keep_vals = c("rhizo")) 
+filt_root <- filter_data(input_f2, 'sample_type_2', keep_vals = c("root")) 
+filt_slurry <- filter_data(input_f2, 'sample_type_2', keep_vals = c("slurry")) 
+filt_soil <- filter_data(input_f2, 'sample_type_2', keep_vals = c("soil")) 
+filt_auto <- filter_data(input_f2, 'sample_type_2', keep_vals = c("auto_soil"))
+
+# richness for each sample type
+rhizo_rich.l <- colSums(filt_rhizo$data_loaded !=0)
+root_rich.l <- colSums(filt_root$data_loaded !=0)
+slurry_rich.l <- colSums(filt_slurry$data_loaded !=0)
+soil_rich.l <- colSums(filt_soil$data_loaded !=0)
+auto_rich.l <- colSums(filt_auto$data_loaded !=0)
+
+# reads for each sample type
+rhizo_reads.l <- colSums(filt_rhizo$data_loaded) %>% sort()
+root_reads.l <- colSums(filt_root$data_loaded) %>% sort()
+slurry_reads.l <- colSums(filt_slurry$data_loaded) %>% sort()
+soil_reads.l <- colSums(filt_soil$data_loaded)
+auto_reads.l <- colSums(filt_auto$data_loaded)
+
+# create dfs for each sample type
+root_explr.df <- filt_root$data_loaded %>% 
+  mutate(tot_reads = rowSums(.)) %>% 
+  mutate(tot_ubiq = rowSums(. !=0)) %>% 
+  rownames_to_column(var = "ASV") %>% 
+  inner_join(filt_root$taxonomy_loaded, by = c("ASV" = "taxonomy7")) %>% 
+  mutate(taxonomy7 = ASV)
+
+rhizo_explr.df <- filt_rhizo$data_loaded %>% 
+  mutate(tot_reads = rowSums(.)) %>% 
+  mutate(tot_ubiq = rowSums(. !=0)) %>% 
+  rownames_to_column(var = "ASV") %>% 
+  inner_join(filt_rhizo$taxonomy_loaded, by = c("ASV" = "taxonomy7")) %>% 
+  mutate(taxonomy7 = ASV)
+
+slurry_explr.df <- filt_slurry$data_loaded %>% 
+  mutate(tot_reads = rowSums(.)) %>% 
+  mutate(tot_ubiq = rowSums(. !=0)) %>% 
+  rownames_to_column(var = "ASV") %>% 
+  inner_join(filt_slurry$taxonomy_loaded, by = c("ASV" = "taxonomy7")) %>% 
+  mutate(taxonomy7 = ASV)
+
+auto_explr.df <- filt_auto$data_loaded %>% 
+  mutate(tot_reads = rowSums(.)) %>% 
+  mutate(tot_ubiq = rowSums(. !=0)) %>% 
+  rownames_to_column(var = "ASV") %>% 
+  inner_join(filt_auto$taxonomy_loaded, by = c("ASV" = "taxonomy7")) %>% 
+  mutate(taxonomy7 = ASV)
+```
+
+#### richness checks for cleaned root and rhizo data
+```{r}
+# inputf2_rhizo.chem is the fully cleaned and filtered data
+
+rhz_rich.df <- inputf2_rhizo.chem$map_loaded %>% 
+ rownames_to_column(var = "sample_id") %>% 
+left_join(data.frame(Richness = colSums(inputf2_rhizo.chem$data_loaded != 0)) %>%
+               rownames_to_column(), by = c("sample_id" = "rowname"))
+
+## does richness correlate with seed glucosinolate content?
+cor.test(rhz_rich.df$Allyl..µmol.g., rhz_rich.df$Richness)
+
+## plot relationship between richness and gsl content
+ggplot(rhz_rich.df, mapping = aes(x = Richness, y = Allyl..µmol.g., shape = sterility.x, color = condition))+
+  geom_point(size = 5)+
+  scale_color_manual(values = pair.pal2[1:11])+
+  theme_bw(base_size = 16)
+
+## check spider mites
+ggplot(rhz_rich.df, mapping = aes(x = Richness, y = Allyl..µmol.g., shape = Spider.mites, color = Last.Seeds.Collected))+
+  geom_point()
+
+## plot richness per condition
+rhz_rich.x.cond <- ggplot(rhz_rich.df, aes(x = condition, y = Richness, fill = condition))+
+         geom_boxplot()+
+  scale_fill_manual(values = pair.pal2)+
+  scale_x_discrete(limits = c("B","M1", "S1", "M2", "S2", "M3", "S3", "M4", "S4", "M5", "S5"))+
+  theme_bw()
+
+ggsave(rhz_rich.x.cond, filename = paste0(figures_02.fp, "/rhz_rich.x.cond.png"))
+```
+
+
+## Visualizations: NMDS ordination plots
+All samples, sample type comparisons
+```{r}
+# NMDS plot of filtered, rarefied samples
+
+## distance matrix for plotting
+sb_transformed.s2 <- t(sqrt(input_f2_samps2$data_loaded))
+dm.s2 <- vegdist(sb_transformed.s2, method = "bray")
+sb.s2.nmds <- metaMDS(dm.s2, k = 3, trymax = 50)
+
+## plot nmds
+nmds_s2 <- plot_ordination(input = input_f2_samps2, ordination_axes = sb.s2.nmds$points[,1:2], 
+                           shape_cat = 'sample_type_2', color_cat = "condition")+
+  ggtitle("NMDS plot of filtered, rarefied samples")
+  #scale_colour_manual(values=pair.pal2)
+  #theme(legend.position = "none")
+nmds_s2
+##
+ggsave(nmds_s2, filename = paste0(figures_02.fp, "/nmds_allsamp_f2.png"), height = 8, width = 10)
+
+
+####################################
+####################################
+
+# NMDS of root and rhizosphere samples, colored by sample ID
+
+## distance matrix for plotting
+sb_transformed.s3 <- t(sqrt(input_f2_samps3$data_loaded))
+dm.s3 <- vegdist(sb_transformed.s3, method = "bray")
+sb.s3.nmds <- metaMDS(dm.s3, k = 3, trymax = 500)
+
+
+## plot nmds
+nmds_s3 <- plot_ordination(input = input_f2_samps3, ordination_axes = sb.s3.nmds$points[,1:2], 
+                           shape_cat = 'sample_type_2', color_cat = "SampleID_3", hulls = TRUE)+ #color_cat = "condition"
+  #ggtitle("NMDS plot of root and rhizosphere samples")+
+  scale_color_viridis(discrete = TRUE)+
+  theme(legend.position = "none")
+nmds_s3
+###
+ggsave(nmds_s3, filename = paste0(figures_02.fp, "/nmds_rootrhizo_f2_pair_12.9.png"), height = 8, width = 10)
+
+
+####################################
+####################################
+
+# NMDS plot of soil and slurry samples, showing parent soil similar in community to soil
+
+## distance matrix for plotting
+sb_transformed.s4 <- t(sqrt(input_f2_samps4$data_loaded))
+dm.s4 <- vegdist(sb_transformed.s4, method = "bray")
+sb.s4.nmds <- metaMDS(dm.s4, k = 2, trymax = 50)
+
+
+## plot nmds
+nmds_s4 <- plot_ordination(input = input_f2_samps4, ordination_axes = sb.s4.nmds$points, 
+                           shape_cat = 'sample_type_2', color_cat = "condition", size = 7)+
+  #ggtitle("NMDS plot of slurry and origin soil")+
+  scale_colour_manual(values=palmute2[2:11], 
+                      labels=c('Slurry 1','Slurry 2','Slurry 3','Slurry 4','Slurry 5', 
+                               'Soil 1', 'Soil 2','Soil 3','Soil 4','Soil 5'), 
+                      name = "Soil Type")+
+  theme_bw(base_size = 20)+
+  labs(shape = "Sample Type")
+
+nmds_s4
+ggsave(nmds_s4, filename = paste0(figures_02.fp, "/nmds_slurrysoil_nb.png"), height = 8, width = 10)
+
+####################################
+####################################
+
+```
+
+## Visualizations: Root and Rhizo NMDS, PCoA
+```{r}
+# ordinations of RHIZISPHERE samples (all checm)
+
+# inputf2_rhizo.chem ## without blanks or nonchem
+# input_f2_samps5 ## with blanks and nonchem
+
+## distance matrix for plotting
+sb_transformed.s5 <- t(sqrt(inputf2_rhizo.chem$data_loaded))
+
+### bray-curtis rhizosphere
+dm.s5 <- vegdist(sb_transformed.s5, method = "bray")
+sb.s5.nmds <- metaMDS(dm.s5, k = 2, trymax = 500)
+### jaccard rhizosphere
+dmJ.s5 <- vegdist(sb_transformed.s5, method = "jaccard", binary = TRUE)
+sbJ.s5.nmds <- metaMDS(dmJ.s5, k = 2, trymax = 500)
+
+## plot nmds
+##### sterile/blank- points: c(1:10,61:109), colors: c(1,7:11)
+s5.nmds <- plot_ordination(input = inputf2_rhizo.chem, 
+                              ordination_axes = sb.s5.nmds$points, 
+                          color_cat = "condition", shape_cat = "sterility.x", #color_cat = "condition"
+                          hulls = TRUE, size = 7) +
+  #ggtitle("NMDS plot of rhizosphere samples (M - live inocula)")+
+  scale_colour_manual(values=palmuteG, name = "Soil Type")+ #[2:11]
+  scale_fill_manual(values=palmuteG, name = "")+ #[2:11]
+  labs(shape = "Sterility")+
+  # xlim(-0.5, 0.25)+
+  # ylim(-0.15, 0.35)+
+theme_bw(base_size = 24)
+s5.nmds
+
+ggsave(s5.nmds, filename = paste0(figures_02.fp, "/nmds_rhizo_chem.WB_4.17.png"), height = 8, width = 10)
+
+## plot PcoA
+rhiz.PCoA <- calc_ordination(dm = dm.s5, ord_type = 'PCoA')
+rhizo.PCoA.plot <- plot_ordination(input = inputf2_rhizo.chem, ordination_axes = rhiz.PCoA, color_cat = "Allyl..µmol.g.", hulls = FALSE)+
+  ggtitle("PCoA plot of rhizosphere samples - relative abundance")
+  #scale_colour_manual(values=pair.pal2)+
+ # scale_fill_manual(values=pair.pal2)
+rhizo.PCoA.plot
+ggsave(rhizo.PCoA.plot, filename = paste0(figures_02.fp, "/PCoA_rhizo_chem.png"), height = 8, width = 10)
+
+####################################
+####################################
+
+# ordinations of ROOT samples
+
+## distance matrix for plotting
+sb_transformed.s6 <- t(sqrt(inputf2_root.chem$data_loaded))
+dm.s6 <- vegdist(sb_transformed.s6, method = "bray")
+sb.s6.nmds <- metaMDS(dm.s6, k = 2, trymax = 500)
+
+dmJ.s6 <- vegdist(sb_transformed.s6, method = "jaccard")
+sbJ.s6.nmds <- metaMDS(dmJ.s6, k = 2, trymax = 500)
+
+
+## plot nmds
+nmds_s6 <- plot_ordination(input = inputf2_root.chem, ordination_axes = sbJ.s6.nmds$points, 
+                          color_cat = "condition", shape_cat = "sterility.x", #color_cat = "condition"
+                          hulls = FALSE, size = 7) +
+  scale_colour_manual(values=palmuteG, name = "Soil Type")+
+  scale_fill_manual(values=palmuteG, name = "")+
+  labs(shape = "Sterility")+
+  # xlim(-0.5, 0.25)+
+  # ylim(-0.15, 0.35)+
+theme_bw(base_size = 24)
+nmds_s6
+
+ggsave(nmds_s6, filename = paste0(figures_02.fp, "/nmdsJAC_root_chem.png"), height = 8, width = 10)
+
+## plot PCoA
+root.PCoA <- calc_ordination(dm = dm.s6, ord_type = 'PCoA')
+root.PCoA.plot <- plot_ordination(input = inputf2_root.chem, ordination_axes = root.PCoA, color_cat = "condition", shape_cat = "sterility.x", hulls = TRUE)+
+  ggtitle("PCoA plot of root samples")+
+  scale_colour_manual(values=pair.pal2)+
+  scale_fill_manual(values=pair.pal2)
+
+ggsave(root.PCoA.plot, filename = paste0(figures_02.fp, "/PCoA_root_chem.png"), height = 8, width = 10)
+
+```
+
+
+## PERMANOVAS
+```{r}
+# Run a PERMANOVA to test for the differences between soil inoculation treatments (M conditions)
+# input_f2_samps5 OR input_f2_rhizo.M OR inputf2_rhizo.chem$data_loaded
+transformed.rzM <- t(sqrt(input_f2_rhizo.M$data_loaded))
+dm.rzM <- vegdist(transformed.rzM, method = "bray")
+
+
+pnova.rhizoM <- adonis(formula = dm.rzM ~  soil_type.x, 
+                   data = input_f2_rhizo.M$map_loaded, 
+                   perm = 1000) #check +Spider.mites
+pnova.rhizoM
+
+
+# Run a PERMANOVA to test for the differences between soil inoculation treatments (S conditions)
+transformed.rzS <- t(sqrt(input_f2_rhizo.S$data_loaded))
+dm.rzS <- vegdist(transformed.rzS, method = "bray")
+
+
+pnova.rhizoS <- adonis(formula = dm.rzS ~ soil_type.x, 
+                   data = input_f2_rhizo.S$map_loaded, 
+                   perm = 1000) 
+pnova.rhizoS
+
+
+# Run a permanova to test for the differences driven by spider mite presence
+## eliminate samples with unknown info: 
+#SMrem <- inputf2_rhizo.chem$map_loaded %>% subset(Spider.mites == "I")
+
+inputf2_rhizo.SMrem <- filter_data(inputf2_rhizo.chem, filter_cat = "Spider.mites", filter_vals = "I")
+inputf2_rhizo.SMx <- filter_data(inputf2_rhizo.chem, filter_cat = "Spider.mites", keep_vals = "X")
+
+transformed.rzSM <- t(sqrt(inputf2_rhizo.SMrem$data_loaded))
+dm.rzSM <- vegdist(transformed.rzSM, method = "bray")
+
+
+pnova.smC <- adonis(formula = dm.rzSM ~ soil_type.x + Spider.mites, 
+                   data = inputf2_rhizo.SMrem$map_loaded, 
+                   perm = 1000) 
+pnova.smC
+
+
+
+### independent PERMANOVAS per soil type
+### is there a difference between sterile and live microbial inoculations within each soil type?
+
+## soil 1 (inputf2_rhizo.chem OR input_f2_samps5)
+input_rhizo1 <- filter_data(input = inputf2_rhizo.chem, filter_cat = "soil_type.x", keep_vals = "1")
+
+transformed.rz1 <- t(sqrt(input_rhizo1$data_loaded))
+dm.rz1 <- vegdist(transformed.rz1, method = "bray")
+
+pnova.rz1 <- adonis(formula = dm.rz1 ~ sterility.x, 
+                   data = input_rhizo1$map_loaded, 
+                   perm = 1000)
+pnova.rz1
+
+## soil 2
+input_rhizo2 <- filter_data(input = inputf2_rhizo.chem, filter_cat = "soil_type.x", keep_vals = "2")
+
+transformed.rz2 <- t(sqrt(input_rhizo2$data_loaded))
+dm.rz2 <- vegdist(transformed.rz2, method = "bray")
+
+pnova.rz2 <- adonis(formula = dm.rz2 ~ sterility.x, 
+                   data = input_rhizo2$map_loaded, 
+                   perm = 1000)
+pnova.rz2
+
+## soil 3
+input_rhizo3 <- filter_data(input = inputf2_rhizo.chem, filter_cat = "soil_type.x", keep_vals = "3")
+
+transformed.rz3 <- t(sqrt(input_rhizo3$data_loaded))
+dm.rz3 <- vegdist(transformed.rz3, method = "bray")
+
+pnova.rz3 <- adonis(formula = dm.rz3 ~ sterility.x, 
+                   data = input_rhizo3$map_loaded, 
+                   perm = 1000)
+pnova.rz3
+
+## soil 4
+input_rhizo4 <- filter_data(input = inputf2_rhizo.chem, filter_cat = "soil_type.x", keep_vals = "4")
+
+transformed.rz4 <- t(sqrt(input_rhizo4$data_loaded))
+dm.rz4 <- vegdist(transformed.rz4, method = "bray")
+
+pnova.rz4 <- adonis(formula = dm.rz4 ~ sterility.x, 
+                   data = input_rhizo4$map_loaded, 
+                   perm = 1000)
+pnova.rz4
+
+## soil 5
+input_rhizo5 <- filter_data(input = inputf2_rhizo.chem, filter_cat = "soil_type.x", keep_vals = "5")
+
+transformed.rz5 <- t(sqrt(input_rhizo5$data_loaded))
+dm.rz5 <- vegdist(transformed.rz5, method = "bray")
+
+pnova.rz5 <- adonis(formula = dm.rz5 ~ sterility.x, 
+                   data = input_rhizo5$map_loaded, 
+                   perm = 1000)
+pnova.rz5
+
+```
+
+## Dispersion
+Looking at differences among communities within treatment groups
+```{r}
+## Dispersion differences between all "live microbial" inocula and all "sterile" inocula
+
+# run permdist to test for differences in dispersion?
+## dm.rz OR dm.s5
+transformed.rz <- t(sqrt(input_f2_samps5$data_loaded))
+dm.rz <- vegdist(transformed.rz, method = "bray")
+
+disper1 <- betadisper(dm.rz, input_f2_samps5$map_loaded$sterility)
+# Average distance to median:
+#      B      M      S 
+# 0.3126 0.4229 0.3392 
+anova(disper1)
+permutest(disper1)
+TukeyHSD(disper1)
+
+
+## Dispersion differences across all 11 treatment conditions
+disper2 <- betadisper(dm.rz, input_f2_samps5$map_loaded$condition)
+anova(disper2)
+permutest(disper2)
+TukeyHSD(disper2)
+
+# Average distance to median:
+#      B     M1     M2     M3     M4     M5     S1     S2     S3     S4     S5 
+# 0.3331 0.3815 0.3737 0.4261 0.4359 0.3194 0.3411 0.3360 0.3183 0.3233 0.3128 
+
+# Average distance to median:chem only
+#     M1     M2     M3     M4     M5     S1     S2     S3     S4     S5 
+# 0.3515 0.3645 0.3726 0.4359 0.3158 0.3036 0.3360 0.3183 0.3116 0.3128 
+
+m.dist <- c(0.3815, 0.3737, 0.4261, 0.4359, 0.3194) 
+s.dist <- c(0.3411, 0.3360, 0.3183, 0.3233, 0.3128)
+
+m.dist.c <- c(0.3515, 0.3645, 0.3726, 0.4359, 0.3158) 
+s.dist.c <- c(0.3036, 0.3360, 0.3183, 0.3116, 0.3128)
+
+b.dist <- c(0.3331)
+
+## is there a difference in dispersion between the live and sterile inoculation treatments?
+t.test(m.dist.c, s.dist.c)
+
+
+## plot dispersion
+
+### datafranes for dispersion plot
+rhizo_disper.r <- disper2$distances %>% 
+  as.data.frame() %>% 
+  rownames_to_column(var = "Sample_ID") 
+colnames(rhizo_disper.r) <- c("Sample_ID", "dist")
+
+rhizo_disper <- rhizo_disper.r %>% 
+  mutate(SampleID_2 = gsub('(.*)_\\w+', '\\1', Sample_ID)) %>% 
+  mutate(treatment = gsub("\\-.*","", SampleID_2)) %>% 
+  mutate(soil_type = parse_number(treatment)) %>% 
+  mutate(sterility = gsub("[^a-zA-Z]", "", treatment)) 
+rhizo_disper[1:10,4] <- "B"
+
+
+disp_rhizo.p <- ggplot(rhizo_disper %>% subset(sterility != "B"), aes(y = dist, x = treatment, fill = treatment))+
+  geom_boxplot()+
+  geom_point()+
+  scale_fill_manual(values=palmuteGnb, name = "")+
+  scale_x_discrete(limits=c("M1", "S1", "M2", "S2", "M3", "S3",
+                            "M4", "S4", "M5", "S5"))+
+  ylab("Dispersion (Distance to treatment centroid)")+
+  xlab("Treatment")+
+  #ggtitle(label = "rhizosphere dispersion distances")+
+  theme_bw(base_size = 24)
+
+ggsave(disp_rhizo.p, filename = paste0(figures_02.fp, "/disp_rhizo_final_11.9.png"), width = 10, height = 8)
+
+#####################################
+#####################################
+
+### root dispersion
+
+disper2r <- betadisper(dm.s6, input_f2_samps6$map_loaded$condition)
+anova(disper2r)
+permutest(disper2r)
+TukeyHSD(disper2r)
+
+#Average distance to median:
+#      B     M1     M2     M3     M4     M5     S1     S2     S3     S4     S5 
+# 0.3558 0.3865 0.3779 0.4395 0.4154 0.3415 0.4093 0.3518 0.3266 0.3416 0.3578 
+
+Mr.dist <- c(0.3865, 0.3779, 0.4395, 0.4154, 0.3415)
+Sr.dist <- c(0.4093, 0.3518, 0.3266, 0.3416, 0.3578)
+Br.dist <- c(0.3558)
+t.test(Mr.dist, Sr.dist)
+
+root_disper.r <- disper2r$distances %>% 
+  as.data.frame() %>% 
+  rownames_to_column(var = "Sample_ID") 
+colnames(root_disper.r) <- c("Sample_ID", "dist")
+
+root_disper <- root_disper.r %>% 
+  mutate(SampleID_2 = gsub('(.*)_\\w+', '\\1', Sample_ID)) %>% 
+  mutate(treatment = gsub("\\-.*","", SampleID_2)) %>% 
+  mutate(soil_type = parse_number(treatment)) %>% 
+  mutate(sterility = gsub("[^a-zA-Z]", "", treatment)) 
+root_disper[1:10,4] <- "B"
+
+disp_root.p <- ggplot(root_disper, aes(y = dist, x = treatment, color = treatment))+
+  geom_boxplot()+
+  geom_point()+
+  scale_colour_manual(values=pair.pal2)+
+  scale_x_discrete(limits=c("B", "M1", "S1", "M2", "S2", "M3", "S3",
+                            "M4", "S4", "M5", "S5"))+
+  ylab("distance to treatment centroid")+
+  ggtitle(label = "root dispersion distances")
+ggsave(disp_root.p, filename = paste0(figures_02.fp, "/disp_root_final.png"))
+```
+
+
+## GSL chemistry PCA 
+Visualizing seed chemical composition across samples
+Also using PCA coordinates as alternative seed chemistry response value (as opposed to main gsl "allyl")
+```{r}
+### PCA
+# https://www.datacamp.com/community/tutorials/pca-analysis-r
+
+
+## prep dataframe for input
+chem.df.rz1 <- inputf2_rhizo.chem$map_loaded
+grp <- chem.df.rz1$soil_type.x
+
+## calc pca
+chem.pca <- prcomp(chem.df.rz1[,25:28], center = TRUE,scale. = TRUE)
+summary(chem.pca)
+ggbiplot(chem.pca, ellipse = TRUE, groups = grp)
+
+## extract first component
+chemPCs <- chem.pca$x %>% as.data.frame() %>% 
+  rownames_to_column(var = "sampleID")
+chemPC1 <- chemPCs %>% 
+  dplyr::select(c("sampleID", "PC1"))
+
+### calculate chemical dispersion within conditions
+dm.chem <- vegdist(chem.df.rz1[,25:28], method = "bray")
+disper.chem <- betadisper(dm.chem, inputf2_rhizo.chem$map_loaded$condition)
+
+# Average distance to median:
+#      M1      M2      M3      M4      M5      S1      S2      S3      S4      S5 
+# 0.16229 0.09969 0.44242 0.23186 0.26856 0.07481 0.18140 0.15977 0.35627 0.37405
+
+```
+
+```{r}
+### add PC1 to dataframe
+chem.rz.all <- chem.df.rz1 %>% 
+  inner_join(chemPC1, by = c("sample_id" = "sampleID"))
+
+saveRDS(chem.rz.all, paste0(outputs_02.fp, "/metadata_rz_all.RDS"))
+
+```
+
+
+## Chem and Mass analysis
+### Does seed chemistry or seed mass vary across treatment conditions?
+```{r}
+## chemistry analysis
+
+### is there a difference in seed chemistry between live and sterile treatments of same soil?
+t.test(chem.Mrz.all %>% subset(soil_type.x == 1) %>% .$PC1, 
+       chem.Srz.all %>% subset(soil_type.x == 1) %>% .$PC1)
+
+t.test(chem.Mrz.all %>% subset(soil_type.x == 2) %>% .$PC1, 
+       chem.Srz.all %>% subset(soil_type.x == 2) %>% .$PC1)
+
+t.test(chem.Mrz.all %>% subset(soil_type.x == 3) %>% .$PC1, 
+       chem.Srz.all %>% subset(soil_type.x == 3) %>% .$PC1)
+
+t.test(chem.Mrz.all %>% subset(soil_type.x == 4) %>% .$PC1, 
+       chem.Srz.all %>% subset(soil_type.x == 4) %>% .$PC1)
+
+t.test(chem.Mrz.all %>% subset(soil_type.x == 5) %>% .$PC1, 
+       chem.Srz.all %>% subset(soil_type.x == 5) %>% .$PC1)
+
+### is there a difference in seed chemistry between the 5 live inocua treatments?
+aov.Mrhizo <- aov(formula = PC1 ~ soil_type.x, data = chem.Mrz.all)
+summary(aov.Mrhizo)
+
+### is there a difference in seed chemistry between the 5 sterile inocua treatments?
+aov.Srhizo <- aov(formula = PC1 ~ soil_type.x, data = chem.Srz.all)
+summary(aov.Srhizo)
+
+### mass analysis
+### is there a difference in seed mass between live and sterile treatments of same soil?
+t.test(chem.Mrz.all %>% subset(soil_type.x == 1) %>% .$total_seed_mass, 
+       chem.Srz.all %>% subset(soil_type.x == 1) %>% .$total_seed_mass)
+
+t.test(chem.Mrz.all %>% subset(soil_type.x == 2) %>% .$total_seed_mass, 
+       chem.Srz.all %>% subset(soil_type.x == 2) %>% .$total_seed_mass)
+
+t.test(chem.Mrz.all %>% subset(soil_type.x == 3) %>% .$total_seed_mass, 
+       chem.Srz.all %>% subset(soil_type.x == 3) %>% .$total_seed_mass)
+
+t.test(chem.Mrz.all %>% subset(soil_type.x == 4) %>% .$total_seed_mass, 
+       chem.Srz.all %>% subset(soil_type.x == 4) %>% .$total_seed_mass)
+
+t.test(chem.Mrz.all %>% subset(soil_type.x == 5) %>% .$total_seed_mass, 
+       chem.Srz.all %>% subset(soil_type.x == 5) %>% .$total_seed_mass)
+
+### is there a difference in seed mass between the 5 live inocua treatments?
+aov.Mrz.mass <- aov(formula = total_seed_mass ~ soil_type.x, data = chem.Mrz.all)
+summary(aov.Mrhizo)
+
+### is there a difference in seed mass between the 5 sterile inocua treatments?
+aov.Srz.mass <- aov(formula = total_seed_mass ~ soil_type.x, data = chem.Srz.all)
+summary(aov.Srhizo)
+
+
+```
+
+
+### Root and rhizosphere exploration
+Look at dominant taxa (in root, rhizo, or both), from an abundance and a ubiquity standpoint
+```{r}
+## format root and rhizo specific df, totaling reads and ubiquity, and joining taxonomy
+root_rhizo.df <- input_f2_samps3$data_loaded %>% 
+  mutate(asv_reads = rowSums(.[1:ncol(input_f2_samps3$data_loaded)])) %>% 
+  mutate(asv_ubiq = rowSums(.[1:ncol(input_f2_samps3$data_loaded-1)] !=0)) %>%
+  mutate(rhizo_reads = rowSums(select(., contains(c("rhizo", "rihzo"))))) %>% 
+  mutate(rhizo_ubiq = rowSums(select(.,contains(c("rhizo", "rihzo")))!=0)) %>% 
+  mutate(root_reads = rowSums(select(., contains("root")))) %>% 
+  mutate(root_ubiq = rowSums(select(.,contains(c("root")))!=0)) %>%
+  rownames_to_column(var = "ASV") %>% 
+  left_join(input_f2_samps3$taxonomy_loaded,by = c("ASV" = "taxonomy7")) %>% 
+  mutate(taxonomy7 = ASV)
+
+summary(colSums(input_f2_samps3$data_loaded !=0))
+```
+
+### Rhizosphere specific exploration
+Look at dominant taxa, both from an abundance and a ubiquity standpoint
+```{r}
+## format rhizosphere specific df, totaling reads and ubiquity, and joining taxonomy
+rhizo.df <- input_f2_samps5$data_loaded %>% 
+  mutate(asv_reads = rowSums(.[1:ncol(input_f2_samps5$data_loaded)])) %>% 
+  mutate(asv_ubiq = rowSums(.[1:ncol(input_f2_samps5$data_loaded-1)] !=0)) %>% 
+  rownames_to_column(var = "ASV") %>% 
+  left_join(input_f2_samps5$taxonomy_loaded,by = c("ASV" = "taxonomy7")) %>% 
+  mutate(taxonomy7 = ASV)
+
+summary(colSums(input_f2_samps5$data_loaded !=0))
+ncol(input_f2_samps5$data_loaded)
+
+
+nrow(rhizo.df %>% filter(asv_ubiq > 100))
+
+```
+

@@ -1,0 +1,448 @@
+---
+title: "mantel_tests"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Set up
+
+### Load libraries
+```{r}
+library(mctoolsr)
+library(plyr) 
+library(tidyverse) 
+library(vegan)
+library(plotly)
+library(readr)
+library(viridis)
+
+set.seed(10)
+```
+
+
+### Set up input and output directories
+```{r Set up input and output directories, include = FALSE}
+project.fp <- "/Users/coin8046/Desktop/FiererLabNotebook_copy/mustard_microbiome/mustard_16S/r_analyses"
+clean_data.fp <- file.path(project.fp, "01_clean_data")
+    figures_01_clean.fp <- file.path(clean_data.fp, "figures")
+    outputs_01_clean.fp <- file.path(clean_data.fp, "outputs")
+
+explr_02.fp <- file.path(project.fp, "02_exploration")
+    figures_02.fp <- file.path(explr_02.fp, "figures")
+    outputs_02.fp <- file.path(explr_02.fp, "outputs")
+    
+mantel_03.fp <- file.path(project.fp, "03_mantel")
+    figures_03.fp <- file.path(mantel_03.fp, "figures")
+    outputs_03.fp <- file.path(mantel_03.fp, "outputs")
+
+# if (!dir.exists(mantel_03.fp)) {dir.create(mantel_03.fp, recursive = TRUE)}    
+# if (!dir.exists(figures_03.fp)) {dir.create(figures_03.fp, recursive = TRUE)}
+# if (!dir.exists(figures_03.fp)) {dir.create(figures_03.fp, recursive = TRUE)}
+```
+
+## Data set up 
+
+### Read in data
+```{r}
+## data frames needed (generated in 02_exploration.c.Rmd)
+# input_f2_samps5
+# input_f2_samps6
+# inputf2_rhizo.chem
+# input_f2_rhizo.M
+# input_f2_rhizo.S
+# inputf2_root.chem
+# input_f2_root.M
+# input_f2_root.S
+```
+
+
+## Mantel tests
+
+### Chemical mantel tests
+Do differences in bacterial community composition correlate with differences in seed chemical composition?
+#### Rhizosphere community :: seed chemistry
+```{r}
+## make chemical dataframe (with matching sample IDs)
+chem.df1 <- inputf2_rhizo.chem$map_loaded %>% 
+#   inner_join(metadata, by = c("SampleID_3"= "Pot.ID")) %>% 
+#   column_to_rownames(var = "SampleID_2") %>% 
+  dplyr::select(c("Allyl..µmol.g.", "X3.Butenyl..µmol.g.", "X3MT..µmol.g.", "Indoles..µmol.g."))
+
+## make total allyl dataframe (with matching sample IDs)
+allyl.df1 <- inputf2_rhizo.chem$map_loaded %>% 
+#   inner_join(metadata, by = c("SampleID_3"= "Pot.ID")) %>% 
+#   column_to_rownames(var = "SampleID_2") %>% 
+  dplyr::select(c("allyl_total"))
+
+## separate out each individual gsl
+chem.al <- chem.df1 %>% 
+  dplyr::select("Allyl..µmol.g.")
+chem.X3but <- chem.df1 %>% 
+  dplyr::select("X3.Butenyl..µmol.g.")
+chem.X3MT <- chem.df1 %>% 
+  dplyr::select("X3MT..µmol.g.")
+chem.ind <- chem.df1 %>% 
+  dplyr::select("Indoles..µmol.g.")
+
+## distance matrix for chemicals
+dist.chem = dist(chem.df1)
+dist.allyl = dist(allyl.df1)
+
+dist.al <- dist(chem.al)
+dist.X3but <- dist(chem.X3but)
+dist.X3MT <- dist(chem.X3MT)
+dist.ind <- dist(chem.ind)
+
+## rhizosphere asv table (all rhizo samples)
+rhizo_tab.r <- inputf2_rhizo.chem$data_loaded
+
+## distance matrix for rhizosphere ASVs
+rhizo_dm <- calc_dm(rhizo_tab.r, 'bray_sq_trans')
+rhizo_dmJ <- calc_dm(rhizo_tab.r, 'jaccard')
+
+## mantel test
+rhizo_chem.mantel <- mantel(rhizo_dm, dist.chem)
+rhizo_chem.mantel
+
+rhizo_allyl.mantel <- mantel(rhizo_dm, dist.al)
+rhizo_allylT.mantel <- mantel(rhizo_dm, dist.allyl)
+```
+
+#### Rhizosphere community :: seed chemistry (M & S treatments separate)
+```{r}
+### live microbial inoculation samples only
+
+## chem dataframe
+chem.df.Mrz <- input_f2_rhizo.M$map_loaded %>% 
+  #inner_join(metadata, by = c("SampleID_3"= "Pot.ID")) %>% 
+  #column_to_rownames(var = "sample_id") %>% 
+  dplyr::select(c("Allyl..µmol.g.", "X3.Butenyl..µmol.g.","X3MT..µmol.g.", "Indoles..µmol.g."))
+
+## all chem distance
+dist.chem.Mrz = dist(chem.df.Mrz)
+
+### PC1 distance
+#dist.PC1.Mrz <- dist(chem.Mrz.all$PC1)
+
+## rhizosphere asv table
+rhizoM_tab.r <- input_f2_rhizo.M$data_loaded
+
+## distance matrix for rhizosphere ASVs
+rhizoM_dm <- calc_dm(rhizoM_tab.r, method = 'bray_sq_trans')
+rhizoM_dmJ <- calc_dm(rhizoM_tab.r, method = 'jaccard')
+
+## mantel test all chem
+rhizo_M.mantel <- mantel(rhizoM_dm, dist.chem.Mrz, method = "spearman")
+rhizo_M.mantel
+
+
+
+### sterile inoculation samples only
+chem.df.Srz <- input_f2_rhizo.S$map_loaded %>% 
+  #inner_join(metadata, by = c("SampleID_3"= "Pot.ID")) %>% 
+  #column_to_rownames(var = "sample_id") %>% 
+  dplyr::select(c("Allyl..µmol.g.", "X3.Butenyl..µmol.g.","X3MT..µmol.g.", "Indoles..µmol.g."))
+
+dist.chem.Srz = dist(chem.df.Srz)
+
+## rhizosphere asv table
+rhizoS_tab.r <- input_f2_rhizo.S$data_loaded
+
+## distance matrix for rhizosphere ASVs
+rhizoS_dm <- calc_dm(rhizoS_tab.r, method = 'bray_sq_trans')
+rhizoS_dmJ <- calc_dm(rhizoS_tab.r, method = 'jaccard')
+
+## mantel test
+rhizo_S.mantel <- mantel(rhizoS_dm, dist.chem.Srz, method = "spearman")
+rhizo_S.mantel
+```
+
+#### Spider mites mantel (plants with spider mites only)
+```{r}
+# data for plants with spider mites only
+inputf2_rhizo.SMx <- filter_data(inputf2_rhizo.chem, filter_cat = "Spider.mites", keep_vals = "X")
+
+# extract chem df
+chem.SMrz <- inputf2_rhizo.SMx$map_loaded %>% 
+  #inner_join(metadata, by = c("SampleID_3"= "Pot.ID")) %>% 
+  #column_to_rownames(var = "sample_id") %>% 
+  dplyr::select(c("Allyl..µmol.g.", "X3.Butenyl..µmol.g.","X3MT..µmol.g.", "Indoles..µmol.g."))
+
+### all chem distance
+dist.chem.SM = dist(chem.SMrz)
+
+## extract rhizosphere asv table
+SM.rhizo_tab <- inputf2_rhizo.SMx$data_loaded
+
+## distance matrix for rhizosphere ASVs
+SMrhizo_dm <- calc_dm(SM.rhizo_tab, method = 'bray_sq_trans')
+
+mantel(SMrhizo_dm, dist.chem.SM)
+
+```
+
+#### Root community mantel tests
+root community :: seed chemistry
+```{r}
+## make chemical dataframe (with matching sample IDs)
+chem.df2 <- inputf2_root.chem$map_loaded %>% 
+  inner_join(metadata, by = c("SampleID_3"= "Pot.ID")) %>% 
+  column_to_rownames(var = "sample_id") %>% 
+  select(c("Allyl..µmol.g.", "X3.Butenyl..µmol.g.", "X3MT..µmol.g.", "Indoles..µmol.g."))
+
+
+## separate out each individual gsl
+chem2.al <- chem.df2  %>% 
+  select("Allyl..µmol.g.")
+chem2.X3but <- chem.df2  %>% 
+  select("X3.Butenyl..µmol.g.")
+chem2.X3MT <- chem.df2  %>% 
+  select("X3MT..µmol.g.")
+chem2.ind <- chem.df2  %>% 
+  select("Indoles..µmol.g.")
+
+## distance matrix for chemicals
+dist.chem2 = dist(chem.df2)
+
+dist2.al <- dist(chem2.al)
+dist2.X3but <- dist(chem2.X3but)
+dist2.X3MT <- dist(chem2.X3MT)
+dist2.ind <- dist(chem2.ind)
+
+## root asv table
+root_tab.r <- inputf2_root.chem$data_loaded
+
+## distance matrix for root ASVs
+root_dm <- calc_dm(root_tab.r)
+
+## mantel tests
+root_chem.mantel <- mantel(root_dm, dist.chem2)
+root_chem.mantel
+
+root_al.mantel <- mantel(root_dm, dist2.al)
+root_al.mantel
+root_X3but.mantel <- mantel(root_dm, dist2.X3but)
+root_X3but.mantel
+root_X3MT.mantel <- mantel(root_dm, dist2.X3MT)
+root_X3MT.mantel
+root_ind.mantel <- mantel(root_dm, dist2.ind)
+root_ind.mantel
+```
+
+#### Root community :: seed chemistry (M & S treatments separate)
+```{r}
+
+### roots with live microbe treatment samples only
+chem.df.Mrt <- input_f2_root.M$map_loaded %>% 
+  inner_join(metadata, by = c("SampleID_3"= "Pot.ID")) %>% 
+  column_to_rownames(var = "sample_id") %>% 
+  dplyr::select(c("Allyl..µmol.g..x", "X3.Butenyl..µmol.g..x","X3MT..µmol.g..x","Indoles..µmol.g..x"))
+
+dist.chem.Mrt = dist(chem.df.Mrt)
+
+## rhizosphere asv table
+rootM_tab.r <- input_f2_root.M$data_loaded
+
+## distance matrix for rhizosphere ASVs
+rootM_dm <- calc_dm(rootM_tab.r, method = 'bray_sq_trans')
+
+## mantel test
+root_M.mantel <- mantel(rootM_dm, dist.chem.Mrt)
+root_M.mantel
+
+
+### sterile samples only
+chem.df.Srt <- input_f2_root.S$map_loaded %>% 
+  inner_join(metadata, by = c("SampleID_3"= "Pot.ID")) %>% 
+  column_to_rownames(var = "sample_id") %>% 
+  dplyr::select(c("Allyl..µmol.g..x", "X3.Butenyl..µmol.g..x","X3MT..µmol.g..x", "Indoles..µmol.g..x"))
+
+dist.chem.Srt = dist(chem.df.Srt)
+
+## rhizosphere asv table
+rootS_tab.r <- input_f2_root.S$data_loaded
+
+## distance matrix for rhizosphere ASVs
+rootS_dm <- calc_dm(rootS_tab.r, method = 'bray_sq_trans')
+
+## mantel test
+root_S.mantel <- mantel(rootS_dm, dist.chem.Srt)
+root_S.mantel
+```
+
+## PARTIAL MANTEL
+#### add metadata and perform partial mantel
+```{r}
+# dfs to use (generated above)
+## inputf2_rhizo.chem, input_f2_rhizo.M, input_f2_rhizo.S  
+## rhizoM_dm, dist.chem.Mrz
+
+# calc dist matrix for total_seed_mass; height 9 or 15
+# dist() or vegdist()
+
+# ditance matrix for rhizo community
+rhizoM_dm <- calc_dm(input_f2_rhizo.M$data_loaded, method = 'bray_sq_trans')
+
+# chem dataframe
+chem.df1 <- input_f2_rhizo.M$map_loaded %>% 
+#   inner_join(metadata, by = c("SampleID_3"= "Pot.ID")) %>% 
+#   column_to_rownames(var = "SampleID_2") %>% 
+  dplyr::select(c("Allyl..µmol.g.", "X3.Butenyl..µmol.g.", "X3MT..µmol.g.", "Indoles..µmol.g."))
+
+## distance matrix for chemicals
+dist.chem = dist(chem.df1)
+
+transformed.chemdf1 <- sqrt(chem.df1)
+dist.chemT = dist(transformed.chemdf1)
+
+## distance matrices for metadata
+dist.flwr <- dist(input_f2_rhizo.M$map_loaded$full.flower.appear)
+dist.bolt <- dist(input_f2_rhizo.M$map_loaded$height_15)
+dist.sd.mass <- dist(input_f2_rhizo.M$map_loaded$total_seed_mass)
+# dist.flwrT <- dist(sqrt(input_f2_rhizo.M$map_loaded$full.flower.appear))
+# dist.boltT <- dist(sqrt(input_f2_rhizo.M$map_loaded$height_9))
+
+
+### mantel tests
+mantel(rhizoM_dm, dist.chem)
+mantel(rhizoM_dm, dist.bolt)
+mantel.partial(rhizoM_dm, dist.chem, dist.bolt)
+# mantel.partial(rhizoM_dm, dist.chem.Mrz, okabt_dist, method="pearson", permutations=999)
+```
+
+
+## M v S and plant productivity
+### seed chemistry :: seed mass; rhizosphere community :: seed mass 
+```{r}
+## df of chemical metadata for rhizosphere samples
+rhizo_meta <- inputf2_rhizo.chem$map_loaded %>% 
+  inner_join(metadata, by = c("SampleID_3"= "Pot.ID"))
+
+### plot seed mass per condition
+ggplot(data = rhizo_meta, aes(x = condition, y = total_seed_mass, 
+                              color = condition))+
+  geom_boxplot()+
+  scale_colour_manual(values=pair.pal2)+
+  scale_x_discrete(limits=c("B", "M1", "S1", "M2", "S2", "M3", "S3",
+                            "M4", "S4", "M5", "S5"))
+
+## chemistry dm
+dist.chem
+
+## seed mass dm
+dist.seedmass <- dist(rhizo_meta$total_seed_mass)
+
+## mantel test chem-seedmass
+mantel.chem_seedmass <- mantel(dist.chem, dist.seedmass)
+mantel.chem_seedmass
+
+
+## mantel test seedmass - rhizosphere comm
+mantel.seedmass_rhizo <- mantel(dist.seedmass, rhizo_dm)
+mantel.seedmass_rhizo
+
+```
+
+#### rhizo microbial and sterile samples separately
+```{r}
+### microbial samples only
+M_rhizo_meta <- input_f2_rhizo.M$map_loaded #%>% 
+  #inner_join(metadata, by = c("SampleID_3"= "Pot.ID"))
+  
+## distance matrix for seed mass
+dist.seedmass <- dist(M_rhizo_meta$total_seed_mass)
+
+## distance matrix for chem and rhizosphere ASVs
+rhizoM_dm 
+dist.chem.Mrz
+
+## mantel test seed mass v chem
+rhizo_M_meta.mantel <- mantel(dist.seedmass, dist.chem.Mrz)
+rhizo_M_meta.mantel
+
+## mantel test seed mass v rhizo
+rhizo_M_sm.mantel <- mantel(rhizoM_dm, dist.seedmass)
+rhizo_M_sm.mantel
+
+## mantel test chem v rhizo
+rhizo_M.mantel
+
+##########################
+##########################
+
+### sterile samples only
+S_rhizo_meta <- input_f2_rhizo.S$map_loaded #%>% 
+  #inner_join(metadata, by = c("SampleID_3"= "Pot.ID"))
+
+## distance matrix for seed mass
+dist.seedmass.S <- dist(S_rhizo_meta$total_seed_mass)
+
+## distance matrix for rchem and rhizosphere ASVs
+dist.chem.Srz 
+rhizoS_dm 
+
+## mantel test seed mass v chem
+rhizo_S_meta.mantel <- mantel(dist.seedmass.S, dist.chem.Srz)
+rhizo_S_meta.mantel
+
+## mantel test seed mass v rhizo
+rhizo_S_sm.mantel <- mantel(rhizoS_dm, dist.seedmass.S)
+rhizo_S_sm.mantel
+
+## mantel test chem v rhizo
+rhizo_S.mantel
+```
+
+#### root microbial and sterile samples separately
+```{r}
+### microbial samples only
+M_root_meta <- input_f2_root.M$map_loaded %>% 
+  inner_join(metadata, by = c("SampleID_3"= "Pot.ID"))
+  
+## distance matrix for seed mass
+dist.seedmass.rt <- dist(M_root_meta$total_seed_mass)
+
+## distance matrix for chem and rhizosphere ASVs
+rootM_dm 
+dist.chem.Mrt
+
+## mantel test seed mass v chem
+root_M_meta.mantel <- mantel(dist.seedmass.rt, dist.chem.Mrt)
+root_M_meta.mantel
+
+## mantel test seed mass v rhizo
+root_M_sm.mantel <- mantel(dist.seedmass.rt, rootM_dm)
+root_M_sm.mantel
+
+## mantel test chem v rhizo
+root_M.mantel
+
+##########################
+##########################
+
+### sterile samples only
+S_root_meta <- input_f2_root.S$map_loaded %>% 
+  inner_join(metadata, by = c("SampleID_3"= "Pot.ID"))
+
+## distance matrix for seed mass
+dist.seedmass.Srt <- dist(S_root_meta$total_seed_mass)
+
+## distance matrix for rchem and rhizosphere ASVs
+dist.chem.Srt 
+rootS_dm 
+
+## mantel test seed mass v chem
+root_S_meta.mantel <- mantel(dist.seedmass.Srt, dist.chem.Srt)
+root_S_meta.mantel
+
+## mantel test seed mass v rhizo
+root_S_sm.mantel <- mantel(rootS_dm, dist.seedmass.Srt)
+root_S_sm.mantel
+
+## mantel test chem v rhizo
+root_S.mantel
+```
+
