@@ -50,6 +50,7 @@ RDA_03.5.fp <- file.path(project.fp, "03.5_RDA")
 
 
 ## RDA analysis
+Does seed chemistry influence community composition?
 ```{r}
 # https://fukamilab.github.io/BIO202/06-B-constrained-ordination.html#:~:text=Constrained%20ordinations%20use%20an%20a,the%20variation%20in%20the%20data).
 # https://sites.google.com/site/mb3gustame/constrained-analyses/rda/dbrda

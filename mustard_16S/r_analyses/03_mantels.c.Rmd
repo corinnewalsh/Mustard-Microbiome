@@ -233,6 +233,7 @@ root_ind.mantel
 ```
 
 #### Root community :: seed chemistry (M & S treatments separate)
+Are differences in root communities correlated with differences in seed chemistry? 
 ```{r}
 
 ### roots with live microbe treatment samples only
@@ -315,7 +316,10 @@ mantel.partial(rhizoM_dm, dist.chem, dist.bolt)
 
 
 ## M v S and plant productivity
-### seed chemistry :: seed mass; rhizosphere community :: seed mass 
+Are differences in seed chemistry associated with differences in seed mass?
+seed chemistry :: seed mass;
+Are differences in seed mass correlated with differences in rhizosphere community?
+rhizosphere community :: seed mass 
 ```{r}
 ## df of chemical metadata for rhizosphere samples
 rhizo_meta <- inputf2_rhizo.chem$map_loaded %>% 
@@ -346,7 +350,7 @@ mantel.seedmass_rhizo
 
 ```
 
-#### rhizo microbial and sterile samples separately
+#### Rhizo microbial and sterile samples separately
 ```{r}
 ### microbial samples only
 M_rhizo_meta <- input_f2_rhizo.M$map_loaded #%>% 
@@ -396,7 +400,7 @@ rhizo_S_sm.mantel
 rhizo_S.mantel
 ```
 
-#### root microbial and sterile samples separately
+#### Root microbial and sterile samples separately
 ```{r}
 ### microbial samples only
 M_root_meta <- input_f2_root.M$map_loaded %>% 

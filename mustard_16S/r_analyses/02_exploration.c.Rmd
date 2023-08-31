@@ -427,7 +427,7 @@ auto_explr.df <- filt_auto$data_loaded %>%
   mutate(taxonomy7 = ASV)
 ```
 
-#### richness checks for cleaned root and rhizo data
+#### Richness checks for cleaned root and rhizo data
 ```{r}
 # inputf2_rhizo.chem is the fully cleaned and filtered data
 
@@ -461,7 +461,7 @@ ggsave(rhz_rich.x.cond, filename = paste0(figures_02.fp, "/rhz_rich.x.cond.png")
 
 
 ## Visualizations: NMDS ordination plots
-All samples, sample type comparisons
+Visualize community composition of samples - All samples, sample type comparisons
 ```{r}
 # NMDS plot of filtered, rarefied samples
 
@@ -617,6 +617,7 @@ ggsave(root.PCoA.plot, filename = paste0(figures_02.fp, "/PCoA_root_chem.png"), 
 
 
 ## PERMANOVAS
+Do different microbial inoculation treatments result in significantly different 16S communities?
 ```{r}
 # Run a PERMANOVA to test for the differences between soil inoculation treatments (M conditions)
 # input_f2_samps5 OR input_f2_rhizo.M OR inputf2_rhizo.chem$data_loaded
@@ -720,7 +721,7 @@ pnova.rz5
 ```
 
 ## Dispersion
-Looking at differences among communities within treatment groups
+How much does community composition vary within treatment types?
 ```{r}
 ## Dispersion differences between all "live microbial" inocula and all "sterile" inocula
 
