@@ -1,0 +1,323 @@
+---
+title: "03_FUNGuild"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Set up input and output directories
+```{r Set up input and output directories, include = FALSE}
+project.fp <- "/Users/coin8046/Desktop/FiererLabNotebook/mustard_microbiome/mustard_ITS/R.analyses"
+
+explr_02.fp <- file.path(project.fp, "02_exploration")
+    outputs_02.fp <- file.path(explr_02.fp, "outputs")
+    
+funG_03.fp <- file.path(project.fp, "03_FUNGuild")
+    outputs_03.fp <- file.path(funG_03.fp, "outputs")
+    figures_03.fp <- file.path(funG_03.fp, "figures")
+
+if (!dir.exists(funG_03.fp)) {dir.create(funG_03.fp, recursive = TRUE)}    
+if (!dir.exists(outputs_03.fp)) {dir.create(outputs_03.fp, recursive = TRUE)}
+if (!dir.exists(outputs_02.fp)) {dir.create(figures_03.fp, recursive = TRUE)}
+```
+
+## Data set up 
+### Read in data from FUNGuild
+```{r}
+rhizo.c_FNG <- read.delim(paste0(outputs_02.fp, "/ASVtab_funguild_2.guilds.txt"), 
+                          sep = "\t") %>% 
+  column_to_rownames(var = "ASV")
+
+root.c_FNG <- read.delim(paste0(outputs_02.fp, "/ASVtab_ROOT_funguild.guilds.txt"), 
+                          sep = "\t") %>% 
+  column_to_rownames(var = "ASV")
+```
+
+### Read in sample metadata
+```{r}
+metadata.r <- readRDS("/Users/coin8046/Desktop/FiererLabNotebook/mustard_microbiome/mustard_chem/01_outputs/plant.chem_data.RDS")
+
+metadata <- metadata.r[-c(70), ]
+sampleIDs <- metadata$Pot.ID
+
+```
+
+## Table set up
+### Rhizosphere
+```{r}
+FUNg_tab.ubiq <- rhizo.c_FNG %>% 
+  mutate(tot_ubiq.p = (rowSums(.[,1:89] != 0)/79)) %>% 
+  mutate( M_ubiq.p = (rowSums(.[,11:46] != 0)/36),
+         M_ubiq = (rowSums(.[,11:46] != 0))) %>% 
+  mutate(S_ubiq.p = (rowSums(.[,47:89] != 0)/43),
+         S_ubiq = (rowSums(.[,47:89] != 0))) %>% 
+  mutate(B_ubiq.p = (rowSums(.[,1:10] != 0)/10),
+         B_ubiq = (rowSums(.[,1:10] != 0))) %>% 
+  mutate(M1_ubiq.p = (rowSums(.[,11:15] != 0)/5), 
+         M2_ubiq.p = (rowSums(.[,16:21] != 0)/6),
+         M3_ubiq.p = (rowSums(.[,22:27] != 0)/6),
+         M4_ubiq.p = (rowSums(.[,28:37] != 0)/10),
+         M5_ubiq.p = (rowSums(.[,38:46] != 0)/9),
+         S1_ubiq.p = (rowSums(.[,47:51] != 0)/5),
+         S2_ubiq.p = (rowSums(.[,52:60] != 0)/9),
+         S3_ubiq.p = (rowSums(.[,61:70] != 0)/10),
+         S4_ubiq.p = (rowSums(.[,71:79] != 0)/9),
+         S5_ubiq.p = (rowSums(.[,80:89] != 0)/10)) 
+
+FUNg_tab.reads <- rhizo.c_FNG %>% 
+  mutate(tot_reads = rowSums(.[,1:79]),
+         M_reads.p = rowSums(.[,11:46] / 36),
+         S_reads.p = rowSums(.[,47:89] / 43), 
+         B_reads.p = rowSums(.[,1:10] / 10)) %>% 
+    mutate(M1_reads.p = (rowSums(.[,11:15])/5), 
+         M2_reads.p = (rowSums(.[,16:21])/6),
+         M3_reads.p = (rowSums(.[,22:27])/6),
+         M4_reads.p = (rowSums(.[,28:37])/10),
+         M5_reads.p = (rowSums(.[,38:46])/9),
+         S1_reads.p = (rowSums(.[,47:51])/5),
+         S2_reads.p = (rowSums(.[,52:60])/9),
+         S3_reads.p = (rowSums(.[,61:70])/10),
+         S4_reads.p = (rowSums(.[,71:79])/9),
+         S5_reads.p = (rowSums(.[,80:89])/10))
+
+### pivot long ubiq
+FUNg_long.ru <- FUNg_tab.ubiq %>% 
+  rownames_to_column(var = "ASV") %>% 
+  pivot_longer(cols = contains(c("ubiq")), names_to = "category", values_to = "ubiq")
+
+FUNg_long.ubiq <- FUNg_long.ru[,c(1,91:102)]
+
+FUNg_long.Uf <- FUNg_long.ubiq %>% 
+  subset(category %in% c("M1_ubiq.p", "M2_ubiq.p", "M3_ubiq.p", "M4_ubiq.p", "M5_ubiq.p",
+                         "S1_ubiq.p", "S2_ubiq.p", "S3_ubiq.p", "S4_ubiq.p", "S5_ubiq.p", 
+                         "B_ubiq.p"))
+
+### pivot long reads
+FUNg_long.rr <- FUNg_tab.reads %>% 
+  rownames_to_column(var = "ASV") %>% 
+  pivot_longer(cols = contains(c("reads")), names_to = "category", values_to = "reads")
+
+FUNg_long.reads <- FUNg_long.rr[,c(1,91:102)]
+
+FUNg_long.Rf <- FUNg_long.reads %>% 
+  subset(category %in% c("M1_reads.p", "M2_reads.p", "M3_reads.p", "M4_reads.p", "M5_reads.p",
+                         "S1_reads.p", "S2_reads.p", "S3_reads.p", "S4_reads.p", "S5_reads.p", 
+                         "B_reads.p"))
+   
+```
+
+#### Stats
+```{r}
+tot_rhizo_reads <- FUNg_tab.reads$tot_reads %>% sum()
+
+top4_rhizo_reads.df <- FUNg_tab.reads %>% 
+  rownames_to_column(var = "ASV") %>% subset(ASV %in% c("ASV_1", "ASV_2", "ASV_3", "ASV_4")) 
+top4_rhizo_reads <- top4_rhizo_reads.df$tot_reads %>% sum()
+
+top4_prop <-  top4_rhizo_reads/tot_rhizo_reads 
+```
+
+
+
+### Root data
+```{r}
+FUNg_ROOT.ubiq <- root.c_FNG %>% 
+  mutate(tot_ubiq.p = (rowSums(.[,1:74] != 0)/79)) %>% 
+  mutate( M_ubiq.p = (rowSums(.[,11:38] != 0)/36),
+         M_ubiq = (rowSums(.[,11:38] != 0))) %>% 
+  mutate(S_ubiq.p = (rowSums(.[,39:74] != 0)/43),
+         S_ubiq = (rowSums(.[,39:74] != 0))) %>% 
+  mutate(B_ubiq.p = (rowSums(.[,1:10] != 0)/10),
+         B_ubiq = (rowSums(.[,1:10] != 0))) %>% 
+  mutate(M1_ubiq.p = (rowSums(.[,11:14] != 0)/4), 
+         M2_ubiq.p = (rowSums(.[,15:20] != 0)/6),
+         M3_ubiq.p = (rowSums(.[,21:25] != 0)/5),
+         M4_ubiq.p = (rowSums(.[,26:31] != 0)/6),
+         M5_ubiq.p = (rowSums(.[,32:38] != 0)/7),
+         S1_ubiq.p = (rowSums(.[,39:42] != 0)/4),
+         S2_ubiq.p = (rowSums(.[,43:50] != 0)/8),
+         S3_ubiq.p = (rowSums(.[,51:58] != 0)/8),
+         S4_ubiq.p = (rowSums(.[,59:65] != 0)/7),
+         S5_ubiq.p = (rowSums(.[,66:74] != 0)/9)) 
+
+FUNg_ROOT.reads <- root.c_FNG %>% 
+  mutate(tot_reads = rowSums(.[,1:74]),
+         M_reads.p = rowSums(.[,11:38] / 36),
+         S_reads.p = rowSums(.[,39:74] / 43), 
+         B_reads.p = rowSums(.[,1:10] / 10)) %>% 
+    mutate(M1_reads.p = (rowSums(.[,11:14])/4), 
+         M2_reads.p = (rowSums(.[,15:20])/6),
+         M3_reads.p = (rowSums(.[,21:25])/5),
+         M4_reads.p = (rowSums(.[,26:31])/6),
+         M5_reads.p = (rowSums(.[,32:38])/7),
+         S1_reads.p = (rowSums(.[,39:42])/4),
+         S2_reads.p = (rowSums(.[,43:50])/8),
+         S3_reads.p = (rowSums(.[,51:58])/8),
+         S4_reads.p = (rowSums(.[,59:65])/7),
+         S5_reads.p = (rowSums(.[,66:74])/9))
+
+### pivot long ubiq
+FUNg.ROOT_long.ru <- FUNg_ROOT.ubiq %>% 
+  rownames_to_column(var = "ASV") %>% 
+  pivot_longer(cols = contains(c("ubiq")), names_to = "category", values_to = "ubiq")
+
+FUNg.ROOT_long.ubiq <- FUNg.ROOT_long.ru[,c(1,76:87)]
+
+FUNg.ROOT_long.Uf <- FUNg.ROOT_long.ubiq %>% 
+  subset(category %in% c("M1_ubiq.p", "M2_ubiq.p", "M3_ubiq.p", "M4_ubiq.p", "M5_ubiq.p",
+                         "S1_ubiq.p", "S2_ubiq.p", "S3_ubiq.p", "S4_ubiq.p", "S5_ubiq.p", 
+                         "B_ubiq.p"))
+
+### pivot long reads
+FUNg.ROOT_long.rr <- FUNg_ROOT.reads %>% 
+  rownames_to_column(var = "ASV") %>% 
+  pivot_longer(cols = contains(c("reads")), names_to = "category", values_to = "reads")
+
+FUNg.ROOT_long.reads <- FUNg.ROOT_long.rr[,c(1,76:87)]
+
+FUNg.ROOT_long.Rf <- FUNg.ROOT_long.reads %>% 
+  subset(category %in% c("M1_reads.p", "M2_reads.p", "M3_reads.p", "M4_reads.p", "M5_reads.p",
+                         "S1_reads.p", "S2_reads.p", "S3_reads.p", "S4_reads.p", "S5_reads.p", 
+                         "B_reads.p"))
+   
+```
+
+#### Stats
+```{r}
+tot_root_reads <- FUNg_ROOT.reads$tot_reads %>% sum()
+
+top4_root_reads.df <- FUNg_ROOT.reads %>% 
+  rownames_to_column(var = "ASV") %>% subset(ASV %in% c("ASV_1", "ASV_2", "ASV_3", "ASV_4")) 
+top4_root_reads <- top4_root_reads.df$tot_reads %>% sum()
+
+top4_root_prop <-  top4_root_reads/tot_root_reads
+```
+
+#### Add metadata
+```{r}
+### Rhizo
+FG_rhizo.reads.path <- FUNg_tab.reads %>% 
+  filter(str_detect(Guild, "Pathogen"))
+
+FG_rhizo.reads.plantpath <- FUNg_tab.reads %>% 
+  filter(str_detect(Guild, "Plant Pathogen"))
+  
+path.rc <- data.frame(path.reads = colSums(FG_rhizo.reads.path[,1:89])) %>% 
+  rownames_to_column() %>% 
+  mutate(SampleID_3.r = gsub('(.*)_\\w+', '\\1', rowname)) %>% 
+  mutate(SampleID_3 = gsub('\\.', '-', SampleID_3.r)) %>% 
+  inner_join(metadata, by = c("SampleID_3" = "Pot.ID"))
+
+pathPl.rc <- data.frame(plantpath.reads = colSums(FG_rhizo.reads.plantpath[,1:89])) %>% 
+  rownames_to_column() %>% 
+  mutate(SampleID_3.r = gsub('(.*)_\\w+', '\\1', rowname)) %>% 
+  mutate(SampleID_3 = gsub('\\.', '-', SampleID_3.r)) %>% 
+  inner_join(path.rc, by = "SampleID_3")
+
+cor.test(pathPl.rc$plantpath.reads, pathPl.rc$X3MT..µmol.g.)
+
+### Root
+FG_root.reads.path <- FUNg_ROOT.reads %>% 
+  filter(str_detect(Guild, "Pathogen"))
+
+FG_root.reads.plantpath <- FUNg_ROOT.reads %>% 
+  filter(str_detect(Guild, "Plant Pathogen"))
+  
+Rpath.rc <- data.frame(path.reads = colSums(FG_root.reads.path[,1:74])) %>% 
+  rownames_to_column() %>% 
+  mutate(SampleID_3.r = gsub('(.*)_\\w+', '\\1', rowname)) %>% 
+  mutate(SampleID_3 = gsub('\\.', '-', SampleID_3.r)) %>% 
+  inner_join(metadata, by = c("SampleID_3" = "Pot.ID"))
+
+RpathPl.rc <- data.frame(plantpath.reads = colSums(FG_root.reads.plantpath[,1:74])) %>% 
+  rownames_to_column() %>% 
+  mutate(SampleID_3.r = gsub('(.*)_\\w+', '\\1', rowname)) %>% 
+  mutate(SampleID_3 = gsub('\\.', '-', SampleID_3.r)) %>% 
+  inner_join(path.rc, by = "SampleID_3")
+
+cor.test(RpathPl.rc$plantpath.reads, RpathPl.rc$X3MT..µmol.g.)
+
+cor.test(RpathPl.rc$path.reads, RpathPl.rc$X3MT..µmol.g.)
+
+
+x3mt_tax <- FUNg_ROOT.reads %>% select(c("M3.5_root", "S4.1_root", "S4.10_root", "M4.7_root", "M1.6_root", "M3.10_root", "taxonomy", "Taxon", "Taxon.Level", "Trophic.Mode", "Guild", "Growth.Morphology", "Trait", "Confidence.Ranking","Notes", "Citation.Source", "tot_reads")) %>% 
+  filter(str_detect(Guild, "Plant Pathogen")) %>% 
+  mutate(tmp_reads = rowSums(.[, 1:6])) %>% 
+  mutate(tmp_ubiq = rowSums(.[, 1:6] !=0))
+```
+
+### Plotting
+```{r}
+ggplot(FUNg_tab.ubiq, aes(x = M_ubiq.p, y = S_ubiq.p, color= Trophic.Mode))+
+  geom_point()+
+  theme_minimal()
+
+ggplot(FUNg_ROOT.ubiq, aes(x = M_ubiq.p, y = S_ubiq.p, color= Trophic.Mode))+
+  geom_point()+
+  theme_minimal()
+
+
+ggplot(FUNg_tab.reads %>% filter(tot_reads > 2000) %>% rownames_to_column(var = "ASV"), 
+       aes(x = reorder(ASV, -tot_reads), y = tot_reads, fill= Guild))+
+  geom_col()+
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90))+
+  xlab("ASV")+
+  ylab("total reads")+
+  ggtitle("all rhizo sample reads")
+
+ggplot(FUNg_ROOT.reads %>% filter(tot_reads > 2000) %>% rownames_to_column(var = "ASV"), 
+       aes(x = reorder(ASV, -tot_reads), y = tot_reads, fill= Guild))+
+  geom_col()+
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90))+
+  xlab("ASV")+
+  ylab("total reads")+
+  ggtitle("all root sample reads")
+
+
+ggplot(FUNg_ROOT.ubiq %>% filter(M_ubiq.p>0.30) %>% rownames_to_column(var = "ASV"), 
+       aes(x = reorder(ASV, -M_ubiq.p), y = M_ubiq.p, fill= Guild))+
+  geom_col()+
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90))+
+  xlab("ASV")+
+  ylab("ubiquity")+
+  ggtitle("M sample ubiquity (roots)")
+
+
+ggplot(FUNg_ROOT.reads %>% filter(S_reads.p > 40) %>% rownames_to_column(var = "ASV"), 
+       aes(x = reorder(ASV, -S_reads.p), y = S_reads.p, fill= Guild))+
+  geom_col()+
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90))+
+  xlab("ASV")+
+  ylab("reads")+
+  ggtitle("S sample reads (root)")
+
+ggplot(FUNg.ROOT_long.Uf %>% subset(ASV %in% c("ASV_1", "ASV_3","ASV_4", "ASV_2",
+                                            "ASV_10", "ASV_13", "ASV_7", "ASV_16", 
+                                          "ASV_21", "ASV_11", "ASV_8","ASV_24",
+                                          "ASV_44", "ASV_59", "ASV_55","ASV_23",
+                                          "ASV_46","ASV_61","ASV_41","ASV_19")),
+       aes(x = category, y = ubiq, fill = Guild))+
+  geom_col()+
+  theme(axis.text.x = element_text(angle = 90))+
+  facet_wrap(~ASV)
+
+ggplot(FUNg.ROOT_long.Rf %>% 
+         subset(ASV %in% c("ASV_1", "ASV_3","ASV_4", "ASV_2",
+                  "ASV_10", "ASV_13", "ASV_7", "ASV_16", 
+                  "ASV_21", "ASV_11", "ASV_8","ASV_24",
+                 "ASV_44", "ASV_59", "ASV_55","ASV_23",
+                 "ASV_46","ASV_61","ASV_41","ASV_19")),
+       aes(x = category, y = reads, fill = Guild))+
+  geom_col()+
+  theme(axis.text.x = element_text(angle = 90))+
+  facet_wrap(~ASV, scales = "free_y")
+
+
+```
+
