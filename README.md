@@ -20,7 +20,7 @@ file explanation, organization
 #### mustard_16S/r_analyses
 **01_preprocess.c.Rmd** - cleaning raw ASV table generated with DADA2 (for bacteria)  
 **02_exploration.c.Rmd** - initial exploration of ASV table, including NMDS plots, mantel tests, PERMANOVAs  
-**03_mantels.c.Rmd** - mantel tests looking at associations between rhizosphere community and seed composition, etc 
+**03_mantels.c.Rmd** - mantel tests looking at associations between rhizosphere community and seed composition, etc  
 **03.5_RDA.c.Rmd** - distanced based RDA, constraining ordination to seed chemistry variables  
 **04_RandForestALL.c.Rmd** - random forest model looking for specific ASVs that predict seed glucosinolate content, 16S and ITS data
 
