@@ -1,4 +1,4 @@
-# Mustard_Microbiome
+# Mustard-Microbiome
 scripts for mustard rhizosphere project
 
 ## Project Description (ABSTRACT)
